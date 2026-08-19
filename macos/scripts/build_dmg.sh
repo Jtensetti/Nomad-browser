@@ -51,7 +51,7 @@ iconutil -c icns "$iconset" -o "$app/Contents/Resources/AppIcon.icns"
 
 codesign --force --deep --strict --options runtime --entitlements "$macos_root/NomadBrowser.entitlements" --sign "$identity" "$app"
 codesign --verify --deep --strict --verbose=2 "$app"
-codesign -d --entitlements :- "$app" >"$dist/effective-entitlements.plist" 2>&1
+codesign --display --entitlements - "$app" >"$dist/effective-entitlements.plist"
 if ! grep -Eq 'com\.apple\.security\.app-sandbox' "$dist/effective-entitlements.plist"; then
     echo "signed application lost its sandbox entitlement" >&2
     exit 1
@@ -78,5 +78,9 @@ if [[ "$identity" != "-" ]]; then
     codesign --force --sign "$identity" "$dmg"
 fi
 hdiutil verify "$dmg"
-shasum -a 256 "$dmg" >"$dmg.sha256"
+dmg_name="$(basename "$dmg")"
+(
+    cd "$dist"
+    shasum -a 256 "$dmg_name" >"$dmg_name.sha256"
+)
 printf '%s\n' "$dmg"
