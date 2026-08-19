@@ -1,36 +1,36 @@
-# Nomad Browser Core
+# Nomad browser core
 
-Browser-engine-independent client core for the Nomad research architecture.
+Browser-engine-independent client components for the Nomad experiments.
 
-This repository exists to keep the privacy-critical client logic out of Firefox- and Chromium-specific patches.
+The repository uses **package-level capability separation** rather than a single browser `Engine` object:
 
-## Current invariant
+- `selector` may depend on local embedding/basin/reconstruction code and has no dependency on the network planner or fabric;
+- `planner` may depend on public emission-planning code and has no dependency on semantic or reconstruction packages.
 
-**Private selection must not influence externally observable network planning.**
+`architecture_test.go` checks those dependency graphs with `go list -deps` so an accidental cross-import fails CI.
 
-`SearchLocal` accepts user intent and locally-known opaque candidates. `EmissionPlan` is derived only from public protocol configuration and epoch. There is deliberately no API path from private query state to the network plan.
+## Current scope
 
-## Why a separate core?
+Implemented:
 
-The eventual Firefox and Chromium integrations should be thin adapters around the same audited core. Duplicating privacy logic in two browser engines would create two independent places for leaks.
+- local ranking of already-available candidates,
+- public emission-plan composition,
+- dependency-boundary regression tests.
 
-## Current status
+Not implemented:
 
-Research implementation. It provides:
+- rendering,
+- transport,
+- browser storage or cache isolation,
+- JavaScript/extensions/service-worker isolation,
+- process or OS sandboxing,
+- Firefox/Chromium adapters.
 
-- local intent → semantic basin conversion
-- local candidate ranking
-- a hard API separation from Selection Firewall emission planning
-- tests proving different private queries produce identical network plans
-
-It does **not** yet provide HTML rendering, JS sandboxing, cache storage, browser UI, or a production network transport.
-
-## Run
-
-Clone the Nomad repositories side-by-side, then:
+This package split reduces one class of accidental dependency. It does **not** establish runtime non-interference; global state, IPC, browser services and the OS remain separate audit targets.
 
 ```bash
 go test -race ./...
 go vet ./...
-go run ./cmd/nomad-browser
 ```
+
+The repository currently uses local `replace` directives for sibling Nomad modules. CI needs explicit cross-repository checkout/authentication before remote builds are meaningful.
