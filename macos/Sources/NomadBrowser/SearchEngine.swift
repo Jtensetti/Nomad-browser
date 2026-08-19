@@ -59,10 +59,10 @@ enum LocalSearchEngine {
         guard !tokens.isEmpty else { return 0 }
         var accumulators = Array(repeating: 0, count: 64)
         for token in Set(tokens) {
-            let digest = SHA256.hash(data: Data(token.utf8))
+            let digest = Array(SHA256.hash(data: Data(token.utf8)))
             for bit in 0..<64 {
-                let byte = digest[digest.index(digest.startIndex, offsetBy: bit / 8)]
-                accumulators[bit] += ((byte >> UInt8(bit % 8)) & 1) == 1 ? 1 : -1
+                let byte = digest[bit / 8]
+                accumulators[bit] += ((byte >> (bit % 8)) & 1) == 1 ? 1 : -1
             }
         }
         return accumulators.enumerated().reduce(UInt64(0)) { value, item in

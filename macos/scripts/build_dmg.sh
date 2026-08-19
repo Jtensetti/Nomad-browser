@@ -15,7 +15,7 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 "$macos_root/scripts/security_gate.sh"
 swift build --package-path "$macos_root" -c release --arch arm64 --arch x86_64
 
-binary="$(find "$macos_root/.build" -type f -name NomadBrowser -perm -111 | rg '/(release|Release)/NomadBrowser$' | head -n 1)"
+binary="$(find "$macos_root/.build" -type f -name NomadBrowser -perm -111 | grep -E '/(release|Release)/NomadBrowser$' | head -n 1)"
 if [[ -z "$binary" ]]; then
     echo "universal NomadBrowser executable was not produced" >&2
     exit 1
@@ -52,17 +52,17 @@ iconutil -c icns "$iconset" -o "$app/Contents/Resources/AppIcon.icns"
 codesign --force --deep --strict --options runtime --entitlements "$macos_root/NomadBrowser.entitlements" --sign "$identity" "$app"
 codesign --verify --deep --strict --verbose=2 "$app"
 codesign -d --entitlements :- "$app" >"$dist/effective-entitlements.plist" 2>&1
-if ! rg -q 'com\.apple\.security\.app-sandbox' "$dist/effective-entitlements.plist"; then
+if ! grep -Eq 'com\.apple\.security\.app-sandbox' "$dist/effective-entitlements.plist"; then
     echo "signed application lost its sandbox entitlement" >&2
     exit 1
 fi
-if rg -q 'com\.apple\.security\.network\.(client|server)' "$dist/effective-entitlements.plist"; then
+if grep -Eq 'com\.apple\.security\.network\.(client|server)' "$dist/effective-entitlements.plist"; then
     echo "signed application unexpectedly has network capability" >&2
     exit 1
 fi
 
 linked="$(otool -L "$app/Contents/MacOS/NomadBrowser")"
-if printf '%s\n' "$linked" | rg -q '/(WebKit|CFNetwork|Network)\.framework/'; then
+if printf '%s\n' "$linked" | grep -Eq '/(WebKit|CFNetwork|Network)\.framework/'; then
     echo "release binary links an ordinary-network or web engine framework" >&2
     printf '%s\n' "$linked" >&2
     exit 1
