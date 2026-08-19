@@ -109,7 +109,7 @@ xcrun notarytool log "$submission_id" \
     --key "$notary_key_path" \
     --key-id "$APPLE_NOTARY_KEY_ID" \
     --issuer "$APPLE_NOTARY_ISSUER_ID" \
-    "$dist/notarization-log.json"
+    >"$dist/notarization-log.json"
 xcrun stapler staple "$dmg"
 xcrun stapler validate "$dmg"
 spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg"
