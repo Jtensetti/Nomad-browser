@@ -2,6 +2,11 @@
 
 Browser-engine-independent client contracts for Nomad v0.1.
 
+The `macos/` directory also contains a native SwiftUI alpha client. It has no
+address field or general-purpose web renderer. It searches only verified local
+Nomad objects, renders signed plain text, runs inside the macOS App Sandbox and
+is built as a universal downloadable DMG by GitHub Actions.
+
 ## Implemented
 
 - package-level Selection Firewall separation:
@@ -44,6 +49,12 @@ The core API and fail-closed tests exist. The Firefox and Chromium forks do
 v0.1 completion claim. Renderer process sandboxing, storage partitioning,
 extensions, service workers and browser-vendor background services remain
 engine-specific release gates.
+
+The native macOS alpha deliberately avoids that engine boundary by not using a
+web engine at all. This sharply reduces its presentation surface, but it does
+not turn the alpha into a production anonymity network: the live fabric,
+publisher path, independent operators, Apple notarization and external review
+remain separate release gates.
 
 The component repositories are private. `components/` is a minimal generated
 integration snapshot; `COMPONENTS.lock` pins source commits and
