@@ -12,7 +12,7 @@ app="$dist/Nomad Browser.app"
 rm -rf "$dist"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 
-"$macos_root/scripts/security_gate.sh"
+bash "$macos_root/scripts/security_gate.sh"
 swift build --package-path "$macos_root" -c release --arch arm64 --arch x86_64
 
 binary="$(find "$macos_root/.build" -type f -name NomadBrowser -perm -111 | grep -E '/(release|Release)/NomadBrowser$' | head -n 1)"

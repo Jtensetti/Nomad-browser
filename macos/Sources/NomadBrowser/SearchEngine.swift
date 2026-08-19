@@ -9,6 +9,7 @@ struct SearchResult: Identifiable, Sendable {
 
 enum LocalSearchEngine {
     static let maximumQueryCharacters = 512
+    static let maximumSearchableBodyCharacters = 32_768
 
     static func search(_ rawQuery: String, documents: [VerifiedDocument]) -> [SearchResult] {
         let query = String(rawQuery.prefix(maximumQueryCharacters))
@@ -23,7 +24,7 @@ enum LocalSearchEngine {
             let titleTokens = tokens(document.title)
             let tagTokens = tokens(document.tags.joined(separator: " "))
             let summaryTokens = tokens(document.summary)
-            let bodyTokens = tokens(document.body)
+            let bodyTokens = tokens(String(document.body.prefix(maximumSearchableBodyCharacters)))
             let lexical = overlap(queryTokens, titleTokens) * 8
                 + overlap(queryTokens, tagTokens) * 5
                 + overlap(queryTokens, summaryTokens) * 3

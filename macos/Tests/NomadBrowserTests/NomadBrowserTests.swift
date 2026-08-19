@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import Testing
 @testable import NomadBrowser
 
@@ -30,6 +31,27 @@ func payloadMutationFails() throws {
     )
     #expect(throws: (any Error).self) {
         try ObjectVerifier.verify(mutated)
+    }
+}
+
+@Test("A valid signature from an untrusted publisher fails closed")
+func untrustedPublisherFails() throws {
+    let original = try #require(builtInEnvelopes().first)
+    let payload = try #require(Data(base64Encoded: original.payload))
+    let digest = Data(SHA256.hash(data: payload))
+    let privateKey = Curve25519.Signing.PrivateKey()
+    var message = ObjectVerifier.objectDomain
+    message.append(digest)
+    let signature = try privateKey.signature(for: message)
+    let envelope = SignedEnvelope(
+        version: 1,
+        payload: original.payload,
+        contentHash: digest.hexString,
+        publisherKey: privateKey.publicKey.rawRepresentation.base64EncodedString(),
+        signature: signature.base64EncodedString()
+    )
+    #expect(throws: (any Error).self) {
+        try ObjectVerifier.verify(envelope)
     }
 }
 

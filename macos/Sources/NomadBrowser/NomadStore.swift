@@ -3,7 +3,8 @@ import Foundation
 
 @MainActor
 final class NomadStore: ObservableObject {
-    static let maximumObjects = 10_000
+    static let maximumObjects = 256
+    static let maximumEncodedEnvelopeBytes = 400_000
 
     @Published private(set) var documents: [VerifiedDocument] = []
     @Published private(set) var rejectedObjectCount = 0
@@ -68,9 +69,13 @@ final class NomadStore: ObservableObject {
     private func boundedData(at url: URL) throws -> Data {
         let values = try url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
         guard values.isRegularFile == true else { throw CocoaError(.fileReadUnsupportedScheme) }
-        guard let size = values.fileSize, size <= ObjectVerifier.maximumPayloadBytes * 2 else {
+        guard let size = values.fileSize, size <= Self.maximumEncodedEnvelopeBytes else {
             throw ObjectVerificationError.objectTooLarge
         }
-        return try Data(contentsOf: url, options: [.mappedIfSafe, .uncached])
+        let data = try Data(contentsOf: url, options: [.mappedIfSafe, .uncached])
+        guard data.count <= Self.maximumEncodedEnvelopeBytes else {
+            throw ObjectVerificationError.objectTooLarge
+        }
+        return data
     }
 }
