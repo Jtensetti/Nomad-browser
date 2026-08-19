@@ -6,6 +6,10 @@ on:
     paths:
       - "macos/**"
       - ".github/workflows/macos-dmg.yml"
+  pull_request:
+    paths:
+      - "macos/**"
+      - ".github/workflows/macos-dmg.yml"
   workflow_dispatch:
 
 permissions:
