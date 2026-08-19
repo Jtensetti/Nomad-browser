@@ -11,8 +11,9 @@ The query and selected result are private state. They remain in SwiftUI memory
 and may read the local Nomad cache, but they cannot invoke a network planner,
 resolver, socket, web view, external URL handler, telemetry or crash uploader.
 The shipped alpha has no network client/server entitlement and intentionally
-contains no live fabric transport. Cache population by a constant-rate Nomad
-network process is a later integration gate and must never accept query input.
+contains no fabric transport. A separately sandboxed Nomad materializer writes
+verified objects into the cache. The browser discovers them on a public
+five-second local timer that is independent of the query and selected document.
 
 Only canonical payload bytes whose SHA-256 commitment and Ed25519 signature
 verify under `nomad-object-v1 || SHA256(payload)` are eligible for decoding.
@@ -36,15 +37,16 @@ JavaScript, URL schemes or active media.
 | MAC-10 | The distributed artifact supports Apple Silicon and Intel Macs. | CI rejects a release binary lacking arm64 or x86_64. | MET |
 | MAC-11 | The app bundle and disk image pass platform integrity checks. | `codesign --verify` and `hdiutil verify` in release CI. | MET |
 | MAC-12 | Every artifact is commit-addressed and has a SHA-256 checksum. | Immutable Actions artifact and GitHub prerelease assets. | MET |
+| MAC-13 | Live cache discovery is periodic, local and independent of search; one malformed entry cannot suppress valid entries. | Injected-directory reload test and source capability gate. | MET |
 
-All twelve client gates must pass in the same macOS CI run that produces the
+All thirteen client gates must pass in the same macOS CI run that produces the
 DMG. A source-only pass is not release evidence.
 
 ## Deliberately unclaimed production gates
 
 - packet/DNS capture across supported macOS versions and failure modes;
-- live constant-rate fabric-to-cache integration with an enforced process/IPC
-  boundary;
+- a provisioned Apple App Group or equivalent reviewed production IPC boundary
+  between independently signed fabric and browser applications;
 - multiple independent Nomad operators and WAN adversarial testing;
 - independent browser, systems, cryptographic and privacy review;
 - Developer ID signing, Apple notarization and a signed rollback-resistant

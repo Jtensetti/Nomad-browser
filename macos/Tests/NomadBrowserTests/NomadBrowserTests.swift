@@ -70,3 +70,35 @@ func queriesAreBounded() throws {
     let results = LocalSearchEngine.search(query, documents: documents)
     #expect(!results.isEmpty)
 }
+
+@Test("Periodic local cache reload isolates malformed objects")
+@MainActor
+func liveCacheReloadIsFailClosedPerObject() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let envelopes = try builtInEnvelopes()
+    let store = NomadStore(objectDirectory: directory, includeBuiltIn: false)
+    #expect(store.documents.isEmpty)
+
+    let encoder = JSONEncoder()
+    try encoder.encode(envelopes[0]).write(
+        to: directory.appendingPathComponent("01.nomadobject"),
+        options: .atomic
+    )
+    try Data("not-json".utf8).write(
+        to: directory.appendingPathComponent("02.nomadobject"),
+        options: .atomic
+    )
+    try encoder.encode(envelopes[1]).write(
+        to: directory.appendingPathComponent("03.nomadobject"),
+        options: .atomic
+    )
+
+    store.reload()
+    #expect(store.documents.count == 2)
+    #expect(store.rejectedObjectCount == 1)
+    #expect(store.lastError == nil)
+}

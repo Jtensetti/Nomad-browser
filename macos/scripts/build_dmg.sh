@@ -4,7 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
 macos_root="$repo_root/macos"
 dist="$repo_root/dist"
-version="${NOMAD_VERSION:-0.1.0-alpha.1}"
+version="${NOMAD_VERSION:-0.1.0-alpha.2}"
 build_number="${NOMAD_BUILD_NUMBER:-1}"
 identity="${CODESIGN_IDENTITY:--}"
 app="$dist/Nomad Browser.app"

@@ -24,7 +24,7 @@ jobs:
 
       - name: Build, sandbox, sign and verify universal DMG
         env:
-          NOMAD_VERSION: 0.1.0-alpha.1
+          NOMAD_VERSION: 0.1.0-alpha.2
           NOMAD_BUILD_NUMBER: ${{ github.run_number }}
         run: bash macos/scripts/build_dmg.sh
 

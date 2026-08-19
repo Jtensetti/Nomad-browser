@@ -1,5 +1,11 @@
 # Nomad Browser for macOS — alpha
 
+This build adds live, query-independent cache discovery: the browser reloads
+its local verified object directory every five seconds, never as a consequence
+of search or document selection. Malformed cache entries are rejected
+individually and can no longer suppress valid objects materialized by the live
+Nomad fabric.
+
 This build has no address field and no ordinary web renderer. It searches only
 the verified local Nomad object cache and renders signed plain-text documents
 with native SwiftUI controls.

@@ -28,6 +28,9 @@ The native client's explicit, evidence-based release boundary is documented in
   extension networking, telemetry, crash reporting and Safe Browsing calls;
 - dependency-graph tests and real CI against commit- and SHA-256-pinned
   component snapshots.
+- periodic discovery of newly materialized `.nomadobject` files from the local
+  sandbox cache, on a public five-second cadence that never depends on a query
+  or selected result; malformed entries are isolated and rejected per file.
 
 MIME bindings live inside the signed canonical bundle bytes. A network-supplied
 header cannot silently reinterpret an object as executable content.
@@ -54,10 +57,10 @@ extensions, service workers and browser-vendor background services remain
 engine-specific release gates.
 
 The native macOS alpha deliberately avoids that engine boundary by not using a
-web engine at all. This sharply reduces its presentation surface, but it does
-not turn the alpha into a production anonymity network: the live fabric,
-publisher path, independent operators, Apple notarization and external review
-remain separate release gates.
+web engine at all. The live Nomad materializer can now populate its verified
+object directory while the browser is running, but a production distribution
+still needs provisioned cross-application storage, independent operators,
+Apple notarization and external review.
 
 The component repositories are private. `components/` is a minimal generated
 integration snapshot; `COMPONENTS.lock` pins source commits and

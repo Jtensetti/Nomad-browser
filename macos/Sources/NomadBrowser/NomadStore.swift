@@ -5,30 +5,47 @@ import Foundation
 final class NomadStore: ObservableObject {
     static let maximumObjects = 256
     static let maximumEncodedEnvelopeBytes = 400_000
+    static let publicCacheRefreshInterval: TimeInterval = 5
 
     @Published private(set) var documents: [VerifiedDocument] = []
     @Published private(set) var rejectedObjectCount = 0
     @Published private(set) var lastError: String?
 
-    init() {
+    private let objectDirectoryOverride: URL?
+    private let includeBuiltIn: Bool
+
+    init(objectDirectory: URL? = nil, includeBuiltIn: Bool = true) {
+        objectDirectoryOverride = objectDirectory
+        self.includeBuiltIn = includeBuiltIn
         reload()
     }
 
     func reload() {
         var envelopes: [SignedEnvelope] = []
-        do {
-            guard let builtInURL = Bundle.module.url(forResource: "demo-catalog", withExtension: "json") else {
-                throw CocoaError(.fileNoSuchFile)
+        var rejected = 0
+        lastError = nil
+
+        if includeBuiltIn {
+            do {
+                guard let builtInURL = Bundle.module.url(forResource: "demo-catalog", withExtension: "json") else {
+                    throw CocoaError(.fileNoSuchFile)
+                }
+                let data = try Self.boundedData(at: builtInURL)
+                envelopes.append(contentsOf: try JSONDecoder().decode([SignedEnvelope].self, from: data))
+            } catch {
+                lastError = error.localizedDescription
             }
-            let data = try boundedData(at: builtInURL)
-            envelopes.append(contentsOf: try JSONDecoder().decode([SignedEnvelope].self, from: data))
-            envelopes.append(contentsOf: try diskEnvelopes())
+        }
+
+        do {
+            let disk = try diskEnvelopes()
+            envelopes.append(contentsOf: disk.envelopes)
+            rejected += disk.rejected
         } catch {
             lastError = error.localizedDescription
         }
 
         var accepted: [String: VerifiedDocument] = [:]
-        var rejected = 0
         for envelope in envelopes.prefix(Self.maximumObjects) {
             do {
                 let verified = try ObjectVerifier.verify(envelope)
@@ -43,32 +60,51 @@ final class NomadStore: ObservableObject {
         rejectedObjectCount = rejected
     }
 
-    private func diskEnvelopes() throws -> [SignedEnvelope] {
+    private func diskEnvelopes() throws -> (envelopes: [SignedEnvelope], rejected: Int) {
         let manager = FileManager.default
-        let applicationSupport = try manager.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
-        let objectDirectory = applicationSupport
-            .appendingPathComponent("NomadBrowser", isDirectory: true)
-            .appendingPathComponent("objects", isDirectory: true)
+        let objectDirectory: URL
+        if let objectDirectoryOverride {
+            objectDirectory = objectDirectoryOverride
+        } else {
+            let applicationSupport = try manager.url(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask,
+                appropriateFor: nil,
+                create: true
+            )
+            objectDirectory = applicationSupport
+                .appendingPathComponent("NomadBrowser", isDirectory: true)
+                .appendingPathComponent("objects", isDirectory: true)
+        }
         try manager.createDirectory(at: objectDirectory, withIntermediateDirectories: true)
         let files = try manager.contentsOfDirectory(
             at: objectDirectory,
-            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
+            includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey],
             options: [.skipsHiddenFiles, .skipsPackageDescendants]
         )
-        return try files
+        let candidates = files
             .filter { $0.pathExtension == "nomadobject" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
             .prefix(Self.maximumObjects)
-            .map { try JSONDecoder().decode(SignedEnvelope.self, from: boundedData(at: $0)) }
+        var envelopes: [SignedEnvelope] = []
+        var rejected = 0
+        for file in candidates {
+            do {
+                envelopes.append(try JSONDecoder().decode(SignedEnvelope.self, from: Self.boundedData(at: file)))
+            } catch {
+                // One hostile or partially written object must not suppress the
+                // other immutable cache entries.
+                rejected += 1
+            }
+        }
+        return (envelopes, rejected)
     }
 
-    private func boundedData(at url: URL) throws -> Data {
-        let values = try url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
-        guard values.isRegularFile == true else { throw CocoaError(.fileReadUnsupportedScheme) }
+    private static func boundedData(at url: URL) throws -> Data {
+        let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
+        guard values.isRegularFile == true, values.isSymbolicLink != true else {
+            throw CocoaError(.fileReadUnsupportedScheme)
+        }
         guard let size = values.fileSize, size <= Self.maximumEncodedEnvelopeBytes else {
             throw ObjectVerificationError.objectTooLarge
         }

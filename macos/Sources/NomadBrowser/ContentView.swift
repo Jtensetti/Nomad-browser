@@ -1,9 +1,16 @@
+import Combine
 import SwiftUI
 
 struct ContentView: View {
     @StateObject private var store = NomadStore()
     @State private var query = ""
     @State private var selectedDocument: VerifiedDocument?
+    private let cacheRefresh = Timer.publish(
+        every: NomadStore.publicCacheRefreshInterval,
+        tolerance: 1,
+        on: .main,
+        in: .common
+    ).autoconnect()
 
     private var results: [SearchResult] {
         LocalSearchEngine.search(query, documents: store.documents)
@@ -29,6 +36,11 @@ struct ContentView: View {
             }
         }
         .preferredColorScheme(.dark)
+        .onReceive(cacheRefresh) { _ in
+            // This public timer is intentionally independent of the query and
+            // selected document. Reloading performs local filesystem reads only.
+            store.reload()
+        }
     }
 
     private var header: some View {
@@ -211,10 +223,7 @@ struct ContentView: View {
                     .foregroundStyle(.orange)
             }
             Spacer()
-            Button("Läs om lokal cache") {
-                store.reload()
-            }
-            .buttonStyle(.plain)
+            Label("Cache uppdateras automatiskt", systemImage: "arrow.triangle.2.circlepath")
         }
         .font(.caption)
         .foregroundStyle(.secondary)
