@@ -7,6 +7,9 @@ address field or general-purpose web renderer. It searches only verified local
 Nomad objects, renders signed plain text, runs inside the macOS App Sandbox and
 is built as a universal downloadable DMG by GitHub Actions.
 
+The native client's explicit, evidence-based release boundary is documented in
+[`macos/SECURITY.md`](macos/SECURITY.md).
+
 ## Implemented
 
 - package-level Selection Firewall separation:

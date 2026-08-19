@@ -1,0 +1,56 @@
+# Native macOS client security contract
+
+This contract defines what the downloadable native Nomad Browser alpha must
+prove. It covers the private reader interface and its local verified cache. It
+does not claim that the live, multi-operator anonymity network or anonymous
+publication path is complete.
+
+## Threat boundary
+
+The query and selected result are private state. They remain in SwiftUI memory
+and may read the local Nomad cache, but they cannot invoke a network planner,
+resolver, socket, web view, external URL handler, telemetry or crash uploader.
+The shipped alpha has no network client/server entitlement and intentionally
+contains no live fabric transport. Cache population by a constant-rate Nomad
+network process is a later integration gate and must never accept query input.
+
+Only canonical payload bytes whose SHA-256 commitment and Ed25519 signature
+verify under `nomad-object-v1 || SHA256(payload)` are eligible for decoding.
+The signing key must also match a pinned trust anchor. The native renderer
+accepts only bounded UTF-8 plain-text documents; it does not interpret HTML,
+JavaScript, URL schemes or active media.
+
+## Alpha client Definition of Done
+
+| ID | Requirement | Automated evidence | Status |
+|---|---|---|---|
+| MAC-01 | There is no address field or general URL navigation. | Native SwiftUI source review; external `openURL` action is discarded. | MET |
+| MAC-02 | A private query cannot call networking code. | Source capability gate plus App Sandbox without network entitlements. | MET |
+| MAC-03 | No web engine or ordinary network framework is present in the release binary. | `otool` gate rejects WebKit, CFNetwork and Network. | MET |
+| MAC-04 | Search reads only already-local objects. | Local search test and absence of any network callback/API. | MET |
+| MAC-05 | Object identity is exact, not semantic. | SHA-256 commitment and domain-separated Ed25519 tests. | MET |
+| MAC-06 | Unknown publisher identities fail closed. | Valid-signature/untrusted-key negative test. | MET |
+| MAC-07 | Active or ambiguous content cannot reach a renderer. | Exact plain-text media type and native `Text` rendering only. | MET |
+| MAC-08 | Malformed, mutated, unsigned, untrusted and oversized input fails closed. | Negative verification tests and explicit input limits. | MET |
+| MAC-09 | Query, cache and searchable content work are bounded. | Limits on query, object count, envelope, fields and indexed body text. | MET |
+| MAC-10 | The distributed artifact supports Apple Silicon and Intel Macs. | CI rejects a release binary lacking arm64 or x86_64. | MET |
+| MAC-11 | The app bundle and disk image pass platform integrity checks. | `codesign --verify` and `hdiutil verify` in release CI. | MET |
+| MAC-12 | Every artifact is commit-addressed and has a SHA-256 checksum. | Immutable Actions artifact and GitHub prerelease assets. | MET |
+
+All twelve client gates must pass in the same macOS CI run that produces the
+DMG. A source-only pass is not release evidence.
+
+## Deliberately unclaimed production gates
+
+- packet/DNS capture across supported macOS versions and failure modes;
+- live constant-rate fabric-to-cache integration with an enforced process/IPC
+  boundary;
+- multiple independent Nomad operators and WAN adversarial testing;
+- independent browser, systems, cryptographic and privacy review;
+- Developer ID signing, Apple notarization and a signed rollback-resistant
+  updater;
+- authenticated SiteID/key discovery, rotation and revocation;
+- publication airlock and anonymous publishing.
+
+Until those system gates pass, this artifact is a security-bounded reader
+alpha, not a production-ready anonymity-network claim.

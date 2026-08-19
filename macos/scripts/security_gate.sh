@@ -5,7 +5,7 @@ repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
 source_root="$repo_root/macos/Sources/NomadBrowser"
 entitlements="$repo_root/macos/NomadBrowser.entitlements"
 
-forbidden='import[[:space:]]+(WebKit|Network)|URLSession|WKWebView|WKURLSchemeHandler|NWConnection|NWBrow|CFNetwork|NSWorkspace\.shared\.open|openURL\('
+forbidden='import[[:space:]]+(WebKit|Network|FoundationNetworking|Darwin)|URLSession|WKWebView|WKURLSchemeHandler|NWConnection|NWBrow|CFNetwork|CFStream|NSStream|NSAppleScript|SFSafariApplication|NSWorkspace\.shared\.open|openURL\(|Process[[:space:]]*\(|(^|[^[:alnum:]_])(socket|connect|sendto|recvfrom|getaddrinfo|dlopen|dlsym)[[:space:]]*\('
 if LC_ALL=C grep -ERnE "$forbidden" "$source_root"; then
     echo "forbidden ordinary-network or external-navigation capability in macOS client" >&2
     exit 1

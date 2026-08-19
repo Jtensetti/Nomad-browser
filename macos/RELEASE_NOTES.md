@@ -12,9 +12,12 @@ Security controls in this artifact:
 - no URLSession, socket, external-URL or web-view API is permitted in source;
 - every displayed object must pass SHA-256 and Ed25519 verification over
   `nomad-object-v1 || SHA256(payload)`;
+- a valid self-signature is insufficient: the publisher key must match a
+  pinned local trust anchor;
 - only `text/plain; charset=utf-8` is rendered;
-- malformed, oversized, mutated or unsigned objects fail closed;
-- search is bounded and entirely local.
+- malformed, oversized, mutated, unsigned or untrusted objects fail closed;
+- object count, encoded size, decoded fields, query length and indexed body
+  text are bounded, and search is entirely local.
 
 This prerelease is ad-hoc signed unless the build is supplied with an Apple
 Developer ID. It is not notarized, so macOS Gatekeeper can require an explicit
