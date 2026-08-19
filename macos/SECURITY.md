@@ -39,8 +39,22 @@ JavaScript, URL schemes or active media.
 | MAC-12 | Every artifact is commit-addressed and has a SHA-256 checksum. | Immutable Actions artifact and GitHub prerelease assets. | MET |
 | MAC-13 | Live cache discovery is periodic, local and independent of search; one malformed entry cannot suppress valid entries. | Injected-directory reload test and source capability gate. | MET |
 
-All thirteen client gates must pass in the same macOS CI run that produces the
-DMG. A source-only pass is not release evidence.
+All thirteen alpha client gates must pass in the same macOS CI run that
+produces the DMG. A source-only pass is not release evidence.
+
+## Credentialed distribution gates
+
+| ID | Requirement | Automated evidence | Status |
+|---|---|---|---|
+| MAC-DIST-01 | The application and DMG are signed by the expected Developer ID Application team with hardened runtime and secure timestamps. | Ephemeral-keychain identity, TeamIdentifier, runtime and timestamp checks. | NOT_MET |
+| MAC-DIST-02 | Apple accepts the exact DMG submitted for notarization and the ticket is stapled and validates. | Immutable `notarytool` result/log plus `stapler validate`. | NOT_MET |
+| MAC-DIST-03 | Gatekeeper accepts both the stapled disk image and the contained application before publication. | `spctl` assessments and post-mount signature verification. | NOT_MET |
+| MAC-DIST-04 | Release credentials are scoped to a protected environment, never stored in source/artifacts and removed from the runner after use. | Environment protection review and cleanup-path inspection. | NOT_MET |
+
+These gates become `MET` only from one successful credentialed release run
+and its commit-addressed artifacts. The fail-closed implementation and secret
+handoff are documented in
+[`NOTARIZATION.md`](NOTARIZATION.md).
 
 ## Deliberately unclaimed production gates
 
@@ -49,8 +63,8 @@ DMG. A source-only pass is not release evidence.
   between independently signed fabric and browser applications;
 - multiple independent Nomad operators and WAN adversarial testing;
 - independent browser, systems, cryptographic and privacy review;
-- Developer ID signing, Apple notarization and a signed rollback-resistant
-  updater;
+- successful credentialed Developer ID/notarization evidence and a signed,
+  rollback-resistant updater;
 - authenticated SiteID/key discovery, rotation and revocation;
 - publication airlock and anonymous publishing.
 

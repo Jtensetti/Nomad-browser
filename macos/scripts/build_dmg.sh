@@ -49,7 +49,17 @@ for size in 16 32 128 256 512; do
 done
 iconutil -c icns "$iconset" -o "$app/Contents/Resources/AppIcon.icns"
 
-codesign --force --deep --strict --options runtime --entitlements "$macos_root/NomadBrowser.entitlements" --sign "$identity" "$app"
+app_sign_args=(
+    --force
+    --deep
+    --strict
+    --options runtime
+    --entitlements "$macos_root/NomadBrowser.entitlements"
+)
+if [[ "$identity" != "-" ]]; then
+    app_sign_args+=(--timestamp)
+fi
+codesign "${app_sign_args[@]}" --sign "$identity" "$app"
 codesign --verify --deep --strict --verbose=2 "$app"
 codesign --display --entitlements - "$app" >"$dist/effective-entitlements.plist"
 if ! grep -Eq 'com\.apple\.security\.app-sandbox' "$dist/effective-entitlements.plist"; then
@@ -75,7 +85,7 @@ ln -s /Applications "$dmg_root/Applications"
 dmg="$dist/Nomad-Browser-${version}-macOS-universal.dmg"
 hdiutil create -volname "Nomad Browser" -srcfolder "$dmg_root" -ov -format UDZO "$dmg" >/dev/null
 if [[ "$identity" != "-" ]]; then
-    codesign --force --sign "$identity" "$dmg"
+    codesign --force --timestamp --sign "$identity" "$dmg"
 fi
 hdiutil verify "$dmg"
 dmg_name="$(basename "$dmg")"

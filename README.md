@@ -58,9 +58,14 @@ engine-specific release gates.
 
 The native macOS alpha deliberately avoids that engine boundary by not using a
 web engine at all. The live Nomad materializer can now populate its verified
-object directory while the browser is running, but a production distribution
-still needs provisioned cross-application storage, independent operators,
-Apple notarization and external review.
+object directory while the browser is running. A protected manual release
+workflow now imports an ephemeral Developer ID identity, enables the hardened
+runtime and secure timestamp, submits the DMG to Apple, requires an
+`Accepted` result, staples the ticket and runs Gatekeeper checks before
+publishing. Credential setup is documented in
+[`macos/NOTARIZATION.md`](macos/NOTARIZATION.md). A credentialed successful
+run, provisioned cross-application storage, independent operators and external
+review remain production evidence gates.
 
 The component repositories are private. `components/` is a minimal generated
 integration snapshot; `COMPONENTS.lock` pins source commits and

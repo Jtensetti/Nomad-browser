@@ -25,7 +25,9 @@ Security controls in this artifact:
 - object count, encoded size, decoded fields, query length and indexed body
   text are bounded, and search is entirely local.
 
-This prerelease is ad-hoc signed unless the build is supplied with an Apple
-Developer ID. It is not notarized, so macOS Gatekeeper can require an explicit
-user override. Independent review and the multi-operator Nomad network remain
-production gates.
+The protected distribution workflow publishes this release only after
+Developer ID signing with hardened runtime and a secure timestamp, an Apple
+notarization result of `Accepted`, successful ticket stapling and Gatekeeper
+assessment of both the DMG and contained application. Independent review,
+production IPC/update controls and the independently operated Nomad network
+remain production gates.
