@@ -48,3 +48,18 @@ func TestPlannerDependencyGraphHasNoPrivateSelectionPackages(t *testing.T) {
 		}
 	}
 }
+
+func TestVerifiedResourcePathHasNoNetworkPlannerOrSemanticQuery(t *testing.T) {
+	for _, pkg := range []string{"./adapter", "./localcache"} {
+		deps := dependencies(t, pkg)
+		for _, forbidden := range []string{
+			"github.com/Jtensetti/nomad-selection-firewall/firewall",
+			"github.com/Jtensetti/nomad-constant-rate-fabric/fabric",
+			"github.com/Jtensetti/nomad-semantic-basins/basin",
+		} {
+			if deps[forbidden] {
+				t.Fatalf("%s depends on forbidden package %s", pkg, forbidden)
+			}
+		}
+	}
+}
