@@ -2,6 +2,14 @@
 
 Browser-engine-independent client contracts for Nomad v0.1.
 
+The `macos/` directory also contains a native SwiftUI alpha client. It has no
+address field or general-purpose web renderer. It searches only verified local
+Nomad objects, renders signed plain text, runs inside the macOS App Sandbox and
+is built as a universal downloadable DMG by GitHub Actions.
+
+The native client's explicit, evidence-based release boundary is documented in
+[`macos/SECURITY.md`](macos/SECURITY.md).
+
 ## Implemented
 
 - package-level Selection Firewall separation:
@@ -20,6 +28,9 @@ Browser-engine-independent client contracts for Nomad v0.1.
   extension networking, telemetry, crash reporting and Safe Browsing calls;
 - dependency-graph tests and real CI against commit- and SHA-256-pinned
   component snapshots.
+- periodic discovery of newly materialized `.nomadobject` files from the local
+  sandbox cache, on a public five-second cadence that never depends on a query
+  or selected result; malformed entries are isolated and rejected per file.
 
 MIME bindings live inside the signed canonical bundle bytes. A network-supplied
 header cannot silently reinterpret an object as executable content.
@@ -44,6 +55,17 @@ The core API and fail-closed tests exist. The Firefox and Chromium forks do
 v0.1 completion claim. Renderer process sandboxing, storage partitioning,
 extensions, service workers and browser-vendor background services remain
 engine-specific release gates.
+
+The native macOS alpha deliberately avoids that engine boundary by not using a
+web engine at all. The live Nomad materializer can now populate its verified
+object directory while the browser is running. A protected manual release
+workflow now imports an ephemeral Developer ID identity, enables the hardened
+runtime and secure timestamp, submits the DMG to Apple, requires an
+`Accepted` result, staples the ticket and runs Gatekeeper checks before
+publishing. Credential setup is documented in
+[`macos/NOTARIZATION.md`](macos/NOTARIZATION.md). A credentialed successful
+run, provisioned cross-application storage, independent operators and external
+review remain production evidence gates.
 
 The component repositories are private. `components/` is a minimal generated
 integration snapshot; `COMPONENTS.lock` pins source commits and
