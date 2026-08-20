@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   screenshot:
@@ -17,6 +17,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: agent/browser-screenshot
 
       - name: Build real Nomad Browser app
         env:
@@ -51,7 +53,7 @@ jobs:
           sips -g pixelWidth -g pixelHeight "$GITHUB_WORKSPACE/dist/Nomad-Browser-screenshot.png"
 
           {
-            echo "commit=$GITHUB_SHA"
+            echo "source_commit=$GITHUB_SHA"
             echo "runner=$(sw_vers -productVersion)"
             echo "process=$(pgrep -x NomadBrowser | head -n1)"
             shasum -a 256 "$GITHUB_WORKSPACE/dist/Nomad-Browser-screenshot.png"
@@ -69,3 +71,17 @@ jobs:
             dist/*.sha256
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish screenshot on review branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p docs/screenshots
+          cp dist/Nomad-Browser-screenshot.png docs/screenshots/Nomad-Browser-macOS.png
+          cp dist/screenshot-evidence.txt docs/screenshots/Nomad-Browser-macOS.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- docs/screenshots/Nomad-Browser-macOS.png docs/screenshots/Nomad-Browser-macOS.txt
+          git diff --cached --quiet && exit 0
+          git commit -m "docs: capture real Nomad Browser on macOS [skip ci]"
+          git push origin HEAD:agent/browser-screenshot
