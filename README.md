@@ -1,36 +1,77 @@
 # Nomad browser core
 
-Browser-engine-independent client components for the Nomad experiments.
+Browser-engine-independent client contracts for Nomad v0.1.
 
-The repository uses **package-level capability separation** rather than a single browser `Engine` object:
+The `macos/` directory also contains a native SwiftUI alpha client. It has no
+address field or general-purpose web renderer. It searches only verified local
+Nomad objects, renders signed plain text, runs inside the macOS App Sandbox and
+is built as a universal downloadable DMG by GitHub Actions.
 
-- `selector` may depend on local embedding/basin/reconstruction code and has no dependency on the network planner or fabric;
-- `planner` may depend on public emission-planning code and has no dependency on semantic or reconstruction packages.
+The native client's explicit, evidence-based release boundary is documented in
+[`macos/SECURITY.md`](macos/SECURITY.md).
 
-`architecture_test.go` checks those dependency graphs with `go list -deps` so an accidental cross-import fails CI.
+## Implemented
 
-## Current scope
+- package-level Selection Firewall separation:
+  - `planner` sees only public network configuration;
+  - `selector` sees local embeddings, basins and candidates but no planner or
+    fabric;
+- an immutable `localcache` that accepts only objects whose exact bytes,
+  SHA-256 commitment and Ed25519 signatures verify;
+- a canonical signed-bundle payload that binds local renderer paths and MIME
+  types to exact object hashes;
+- an `adapter` API that serves GET/HEAD exclusively from the verified local
+  cache, with no resolver, socket, HTTP client or network fallback;
+- strict CSP, Permissions Policy, no-referrer and nosniff response defaults;
+- a non-configurable `egress.Policy` that denies DNS, TCP, UDP, HTTP,
+  WebSocket, WebRTC, preconnect, speculative fetch, service-worker updates,
+  extension networking, telemetry, crash reporting and Safe Browsing calls;
+- dependency-graph tests and real CI against commit- and SHA-256-pinned
+  component snapshots.
+- periodic discovery of newly materialized `.nomadobject` files from the local
+  sandbox cache, on a public five-second cadence that never depends on a query
+  or selected result; malformed entries are isolated and rejected per file.
 
-Implemented:
+MIME bindings live inside the signed canonical bundle bytes. A network-supplied
+header cannot silently reinterpret an object as executable content.
 
-- local ranking of already-available candidates,
-- public emission-plan composition,
-- dependency-boundary regression tests.
+## Engine integration contract
 
-Not implemented:
+A Firefox or Chromium Nomad context must:
 
-- rendering,
-- transport,
-- browser storage or cache isolation,
-- JavaScript/extensions/service-worker isolation,
-- process or OS sandboxing,
-- Firefox/Chromium adapters.
+1. route renderer resource loads to `adapter.Handle`;
+2. call `egress.Policy` before scheme dispatch and before every lower-level
+   network capability;
+3. disable or isolate every browser service listed by the policy;
+4. keep ordinary profiles and Nomad profiles in separate process/storage
+   boundaries;
+5. pass engine-level tests proving that denied operations produce no DNS,
+   socket or packet event.
 
-This package split reduces one class of accidental dependency. It does **not** establish runtime non-interference; global state, IPC, browser services and the OS remain separate audit targets.
+## Honest status
+
+The core API and fail-closed tests exist. The Firefox and Chromium forks do
+**not** yet implement this contract, so Nomad browser-engine isolation is not a
+v0.1 completion claim. Renderer process sandboxing, storage partitioning,
+extensions, service workers and browser-vendor background services remain
+engine-specific release gates.
+
+The native macOS alpha deliberately avoids that engine boundary by not using a
+web engine at all. The live Nomad materializer can now populate its verified
+object directory while the browser is running. A protected manual release
+workflow now imports an ephemeral Developer ID identity, enables the hardened
+runtime and secure timestamp, submits the DMG to Apple, requires an
+`Accepted` result, staples the ticket and runs Gatekeeper checks before
+publishing. Credential setup is documented in
+[`macos/NOTARIZATION.md`](macos/NOTARIZATION.md). A credentialed successful
+run, provisioned cross-application storage, independent operators and external
+review remain production evidence gates.
+
+The component repositories are private. `components/` is a minimal generated
+integration snapshot; `COMPONENTS.lock` pins source commits and
+`COMPONENTS.sha256` is checked in CI.
 
 ```bash
 go test -race ./...
 go vet ./...
 ```
-
-The repository currently uses local `replace` directives for sibling Nomad modules. CI needs explicit cross-repository checkout/authentication before remote builds are meaningful.

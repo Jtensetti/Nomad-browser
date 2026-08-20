@@ -8,8 +8,8 @@ require (
 	github.com/Jtensetti/nomad-semantic-basins v0.0.0
 )
 
-replace github.com/Jtensetti/nomad-local-reconstruction => ../nomad-local-reconstruction
+replace github.com/Jtensetti/nomad-local-reconstruction => ./components/nomad-local-reconstruction
 
-replace github.com/Jtensetti/nomad-selection-firewall => ../nomad-selection-firewall
+replace github.com/Jtensetti/nomad-selection-firewall => ./components/nomad-selection-firewall
 
-replace github.com/Jtensetti/nomad-semantic-basins => ../nomad-semantic-basins
+replace github.com/Jtensetti/nomad-semantic-basins => ./components/nomad-semantic-basins
