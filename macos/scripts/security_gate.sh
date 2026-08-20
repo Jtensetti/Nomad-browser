@@ -21,4 +21,19 @@ if /usr/libexec/PlistBuddy -c 'Print' "$entitlements" | grep -Eq 'com\.apple\.se
     exit 1
 fi
 
+app_group="$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.application-groups:0' "$entitlements")"
+if [[ "$app_group" != "group.io.nomad.shared" ]]; then
+    echo "exact Nomad App Group entitlement is required" >&2
+    exit 1
+fi
+if /usr/libexec/PlistBuddy -c 'Print :com.apple.security.application-groups:1' "$entitlements" >/dev/null 2>&1; then
+    echo "unexpected additional App Group entitlement" >&2
+    exit 1
+fi
+
+if ! grep -RFn 'static let appGroupIdentifier = "group.io.nomad.shared"' "$source_root" >/dev/null; then
+    echo "source App Group identifier does not match release entitlement" >&2
+    exit 1
+fi
+
 swift test --package-path "$repo_root/macos"
