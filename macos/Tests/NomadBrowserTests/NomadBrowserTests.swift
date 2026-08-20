@@ -71,6 +71,27 @@ func queriesAreBounded() throws {
     #expect(!results.isEmpty)
 }
 
+@Test("Shared cache uses the exact provisioned App Group container")
+func sharedCacheUsesExactAppGroup() throws {
+    let container = URL(fileURLWithPath: "/tmp/nomad-shared-test", isDirectory: true)
+    var requestedIdentifier: String?
+    let directory = try SharedCache.objectDirectory { identifier in
+        requestedIdentifier = identifier
+        return container
+    }
+
+    #expect(requestedIdentifier == "group.io.nomad.shared")
+    #expect(SharedCache.appGroupIdentifier == "group.io.nomad.shared")
+    #expect(directory == container.appendingPathComponent("objects", isDirectory: true))
+}
+
+@Test("Missing App Group fails closed instead of falling back to private storage")
+func missingSharedCacheFailsClosed() {
+    #expect(throws: SharedCacheError.appGroupUnavailable("group.io.nomad.shared")) {
+        try SharedCache.objectDirectory { _ in nil }
+    }
+}
+
 @Test("Periodic local cache reload isolates malformed objects")
 @MainActor
 func liveCacheReloadIsFailClosedPerObject() throws {
