@@ -1,33 +1,62 @@
 import Foundation
 
 enum SharedCacheError: Error, Equatable {
+    case appGroupConfigurationMissing
+    case invalidAppGroupIdentifier(String)
     case appGroupUnavailable(String)
 }
 
 enum SharedCache {
-    // This identifier is intentionally a protocol/release constant rather than
-    // a user preference. Both independently signed reader and materializer
-    // processes must carry the same provisioned entitlement before production.
-    static let appGroupIdentifier = "group.io.nomad.shared"
+    // build_dmg.sh writes this key into the signed app's Info.plist from the
+    // same Team ID used to generate the application-groups entitlement. It is
+    // release configuration, not a user preference.
+    static let appGroupInfoKey = "NomadAppGroupIdentifier"
+    static let appGroupSuffix = ".nomad.shared"
     static let objectDirectoryName = "objects"
 
+    static func appGroupIdentifier(
+        infoDictionary: [String: Any]? = Bundle.main.infoDictionary
+    ) throws -> String {
+        guard let identifier = infoDictionary?[appGroupInfoKey] as? String else {
+            throw SharedCacheError.appGroupConfigurationMissing
+        }
+        guard isTeamScopedIdentifier(identifier) else {
+            throw SharedCacheError.invalidAppGroupIdentifier(identifier)
+        }
+        return identifier
+    }
+
     static func objectDirectory() throws -> URL {
-        try objectDirectory { identifier in
+        let identifier = try appGroupIdentifier()
+        return try objectDirectory(identifier: identifier) { requestedIdentifier in
             FileManager.default.containerURL(
-                forSecurityApplicationGroupIdentifier: identifier
+                forSecurityApplicationGroupIdentifier: requestedIdentifier
             )
         }
     }
 
-    // The resolver is injected only so tests can prove both the exact path and
-    // fail-closed behavior without requiring a provisioned Apple entitlement on
+    // The resolver is injected only so tests can prove exact-path and
+    // fail-closed behavior without requiring a provisioned Developer ID team on
     // the test runner. Production always uses FileManager.containerURL above.
     static func objectDirectory(
+        identifier: String,
         resolveContainer: (String) -> URL?
     ) throws -> URL {
-        guard let container = resolveContainer(appGroupIdentifier) else {
-            throw SharedCacheError.appGroupUnavailable(appGroupIdentifier)
+        guard isTeamScopedIdentifier(identifier) else {
+            throw SharedCacheError.invalidAppGroupIdentifier(identifier)
+        }
+        guard let container = resolveContainer(identifier) else {
+            throw SharedCacheError.appGroupUnavailable(identifier)
         }
         return container.appendingPathComponent(objectDirectoryName, isDirectory: true)
+    }
+
+    private static func isTeamScopedIdentifier(_ identifier: String) -> Bool {
+        guard identifier.hasSuffix(appGroupSuffix) else { return false }
+        let team = String(identifier.dropLast(appGroupSuffix.count))
+        guard team.utf8.count == 10 else { return false }
+        return team.utf8.allSatisfy { byte in
+            (byte >= 48 && byte <= 57) || (byte >= 65 && byte <= 90)
+        }
     }
 }
