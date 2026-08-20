@@ -42,6 +42,10 @@ final class NomadStore: ObservableObject {
             envelopes.append(contentsOf: disk.envelopes)
             rejected += disk.rejected
         } catch {
+            // A production browser must not silently fall back to its private
+            // Application Support directory when the shared process boundary is
+            // absent. Doing so would make a broken materializer/App Group setup
+            // look functional while bypassing the reviewed cross-process path.
             lastError = error.localizedDescription
         }
 
@@ -64,17 +68,11 @@ final class NomadStore: ObservableObject {
         let manager = FileManager.default
         let objectDirectory: URL
         if let objectDirectoryOverride {
+            // Test-only / dependency-injected path. Production initialization
+            // passes nil and therefore must use the shared App Group container.
             objectDirectory = objectDirectoryOverride
         } else {
-            let applicationSupport = try manager.url(
-                for: .applicationSupportDirectory,
-                in: .userDomainMask,
-                appropriateFor: nil,
-                create: true
-            )
-            objectDirectory = applicationSupport
-                .appendingPathComponent("NomadBrowser", isDirectory: true)
-                .appendingPathComponent("objects", isDirectory: true)
+            objectDirectory = try SharedCache.objectDirectory()
         }
         try manager.createDirectory(at: objectDirectory, withIntermediateDirectories: true)
         let files = try manager.contentsOfDirectory(
