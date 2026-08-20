@@ -18,7 +18,7 @@ if [[ "$identity" != "-" && -z "${APPLE_TEAM_ID:-}" ]]; then
     echo "Developer ID signing requires APPLE_TEAM_ID; refusing to sign with the CI test App Group" >&2
     exit 1
 fi
-app_group_id="${team_id}.nomad.shared"
+app_group_id="${team_id}.nomad.browser-cache"
 
 rm -rf "$dist"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
@@ -63,7 +63,8 @@ done
 iconutil -c icns "$iconset" -o "$app/Contents/Resources/AppIcon.icns"
 
 # Never sign directly from the checked-in entitlement template. Generate a
-# release-specific copy whose group is bound to the signing Team ID.
+# release-specific copy whose browser-cache group is bound to the signing Team
+# ID. The transport domain will use a different .nomad.fabric-cache group.
 signing_entitlements="$dist/NomadBrowser.signing.entitlements"
 cp "$macos_root/NomadBrowser.entitlements" "$signing_entitlements"
 /usr/libexec/PlistBuddy -c "Set :com.apple.security.application-groups:0 $app_group_id" "$signing_entitlements"
@@ -95,12 +96,16 @@ if [[ "$signed_group" != "$app_group_id" ]]; then
     exit 1
 fi
 if /usr/libexec/PlistBuddy -c 'Print :com.apple.security.application-groups:1' "$dist/effective-entitlements.plist" >/dev/null 2>&1; then
-    echo "signed application contains an unexpected additional App Group" >&2
+    echo "signed browser contains an unexpected additional App Group" >&2
     exit 1
 fi
 configured_group="$(/usr/libexec/PlistBuddy -c 'Print :NomadAppGroupIdentifier' "$app/Contents/Info.plist")"
 if [[ "$configured_group" != "$signed_group" ]]; then
     echo "runtime shared-cache identifier does not match signed App Group entitlement" >&2
+    exit 1
+fi
+if [[ "$signed_group" == *'.nomad.fabric-cache' ]]; then
+    echo "browser must never receive the transport fabric-cache App Group" >&2
     exit 1
 fi
 
