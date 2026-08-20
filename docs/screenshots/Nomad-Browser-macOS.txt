@@ -1,0 +1,4 @@
+source_commit=a6d84dbcf7670df4b6c08b918bb7cb718ebb346c
+runner=15.7.7
+process=7560
+1f0bfb523e3274c4343df2d952afc09711941e7de6eae7959595be30e31df09d  /Users/runner/work/Nomad-browser/Nomad-browser/dist/Nomad-Browser-screenshot.png
