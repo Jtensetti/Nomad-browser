@@ -11,6 +11,15 @@ if LC_ALL=C grep -ERnE "$forbidden" "$source_root"; then
     exit 1
 fi
 
+# The shared App Group is a materializer -> browser data plane only. Browser
+# source must not gain a generic filesystem write primitive that could later be
+# consumed as a command/input channel by a network-capable companion process.
+write_capability='createDirectory[[:space:]]*\(|removeItem[[:space:]]*\(|moveItem[[:space:]]*\(|copyItem[[:space:]]*\(|replaceItem[[:space:]]*\(|FileHandle|OutputStream|\.write[[:space:]]*\(to:'
+if LC_ALL=C grep -ERnE "$write_capability" "$source_root"; then
+    echo "browser source contains a filesystem write capability; shared cache must remain read-only from the reader side" >&2
+    exit 1
+fi
+
 if ! /usr/libexec/PlistBuddy -c 'Print :com.apple.security.app-sandbox' "$entitlements" | grep -qx true; then
     echo "app sandbox entitlement is required" >&2
     exit 1
