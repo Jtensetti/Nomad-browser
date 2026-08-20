@@ -1,17 +1,6 @@
 name: macOS verification build
 
 on:
-  push:
-    branches: [agent/macos-browser]
-    paths:
-      - "macos/**"
-      - ".github/workflows/macos-dmg.yml"
-      - ".github/workflows/macos-notarized-release.yml"
-  pull_request:
-    paths:
-      - "macos/**"
-      - ".github/workflows/macos-dmg.yml"
-      - ".github/workflows/macos-notarized-release.yml"
   workflow_dispatch:
 
 permissions:
