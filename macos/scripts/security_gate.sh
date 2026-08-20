@@ -4,6 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
 source_root="$repo_root/macos/Sources/NomadBrowser"
 entitlements="$repo_root/macos/NomadBrowser.entitlements"
+test_app_group="N0MADTEST1.nomad.shared"
 
 forbidden='import[[:space:]]+(WebKit|Network|FoundationNetworking|Darwin)|URLSession|WKWebView|WKURLSchemeHandler|NWConnection|NWBrow|CFNetwork|CFStream|NSStream|NSAppleScript|SFSafariApplication|NSWorkspace\.shared\.open|openURL\(|Process[[:space:]]*\(|(^|[^[:alnum:]_])(socket|connect|sendto|recvfrom|getaddrinfo|dlopen|dlsym)[[:space:]]*\('
 if LC_ALL=C grep -ERnE "$forbidden" "$source_root"; then
@@ -30,9 +31,13 @@ if /usr/libexec/PlistBuddy -c 'Print' "$entitlements" | grep -Eq 'com\.apple\.se
     exit 1
 fi
 
+# The checked-in entitlement is a harmless CI template. build_dmg.sh replaces
+# this exact value with <APPLE_TEAM_ID>.nomad.shared in the signing copy and
+# writes the same value into the signed Info.plist. Apple documents this Team-ID
+# form as a macOS App Group that does not require separate group registration.
 app_group="$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.application-groups:0' "$entitlements")"
-if [[ "$app_group" != "group.io.nomad.shared" ]]; then
-    echo "exact Nomad App Group entitlement is required" >&2
+if [[ "$app_group" != "$test_app_group" ]]; then
+    echo "Nomad App Group entitlement template changed unexpectedly" >&2
     exit 1
 fi
 if /usr/libexec/PlistBuddy -c 'Print :com.apple.security.application-groups:1' "$entitlements" >/dev/null 2>&1; then
@@ -40,8 +45,12 @@ if /usr/libexec/PlistBuddy -c 'Print :com.apple.security.application-groups:1' "
     exit 1
 fi
 
-if ! grep -RFn 'static let appGroupIdentifier = "group.io.nomad.shared"' "$source_root" >/dev/null; then
-    echo "source App Group identifier does not match release entitlement" >&2
+if ! grep -RFn 'static let appGroupInfoKey = "NomadAppGroupIdentifier"' "$source_root" >/dev/null; then
+    echo "browser no longer binds shared-cache lookup to signed release configuration" >&2
+    exit 1
+fi
+if grep -RFn 'group.io.nomad.shared' "$source_root" >/dev/null; then
+    echo "browser source hard-codes the obsolete globally registered App Group form" >&2
     exit 1
 fi
 
