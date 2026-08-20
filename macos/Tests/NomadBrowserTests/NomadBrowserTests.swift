@@ -71,24 +71,47 @@ func queriesAreBounded() throws {
     #expect(!results.isEmpty)
 }
 
-@Test("Shared cache uses the exact provisioned App Group container")
-func sharedCacheUsesExactAppGroup() throws {
+@Test("Shared cache uses the exact Team-scoped App Group from signed release configuration")
+func sharedCacheUsesExactTeamScopedAppGroup() throws {
+    let identifier = "ABCDE12345.nomad.shared"
+    let configured = try SharedCache.appGroupIdentifier(
+        infoDictionary: [SharedCache.appGroupInfoKey: identifier]
+    )
+    #expect(configured == identifier)
+
     let container = URL(fileURLWithPath: "/tmp/nomad-shared-test", isDirectory: true)
     var requestedIdentifier: String?
-    let directory = try SharedCache.objectDirectory { identifier in
-        requestedIdentifier = identifier
+    let directory = try SharedCache.objectDirectory(identifier: configured) { requested in
+        requestedIdentifier = requested
         return container
     }
 
-    #expect(requestedIdentifier == "group.io.nomad.shared")
-    #expect(SharedCache.appGroupIdentifier == "group.io.nomad.shared")
+    #expect(requestedIdentifier == identifier)
     #expect(directory == container.appendingPathComponent("objects", isDirectory: true))
 }
 
-@Test("Missing App Group fails closed instead of falling back to private storage")
+@Test("Missing or malformed App Group release configuration fails closed")
+func invalidSharedCacheConfigurationFailsClosed() {
+    #expect(throws: SharedCacheError.appGroupConfigurationMissing) {
+        try SharedCache.appGroupIdentifier(infoDictionary: [:])
+    }
+    #expect(throws: SharedCacheError.invalidAppGroupIdentifier("group.io.nomad.shared")) {
+        try SharedCache.appGroupIdentifier(
+            infoDictionary: [SharedCache.appGroupInfoKey: "group.io.nomad.shared"]
+        )
+    }
+    #expect(throws: SharedCacheError.invalidAppGroupIdentifier("short.nomad.shared")) {
+        try SharedCache.appGroupIdentifier(
+            infoDictionary: [SharedCache.appGroupInfoKey: "short.nomad.shared"]
+        )
+    }
+}
+
+@Test("Unavailable Team-scoped App Group fails closed instead of falling back to private storage")
 func missingSharedCacheFailsClosed() {
-    #expect(throws: SharedCacheError.appGroupUnavailable("group.io.nomad.shared")) {
-        try SharedCache.objectDirectory { _ in nil }
+    let identifier = "ABCDE12345.nomad.shared"
+    #expect(throws: SharedCacheError.appGroupUnavailable(identifier)) {
+        try SharedCache.objectDirectory(identifier: identifier) { _ in nil }
     }
 }
 
