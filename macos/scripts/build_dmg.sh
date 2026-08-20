@@ -81,7 +81,7 @@ if [[ "$identity" != "-" ]]; then
 fi
 codesign "${app_sign_args[@]}" --sign "$identity" "$app"
 codesign --verify --deep --strict --verbose=2 "$app"
-codesign --display --entitlements - "$app" >"$dist/effective-entitlements.plist"
+codesign --display --entitlements - --xml "$app" >"$dist/effective-entitlements.plist"
 if ! grep -Eq 'com\.apple\.security\.app-sandbox' "$dist/effective-entitlements.plist"; then
     echo "signed application lost its sandbox entitlement" >&2
     exit 1
