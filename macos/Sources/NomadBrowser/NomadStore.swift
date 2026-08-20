@@ -74,7 +74,20 @@ final class NomadStore: ObservableObject {
         } else {
             objectDirectory = try SharedCache.objectDirectory()
         }
-        try manager.createDirectory(at: objectDirectory, withIntermediateDirectories: true)
+
+        // The browser is deliberately a read-only participant in the shared
+        // cache protocol. The materializer owns directory/object creation. If
+        // nothing has been materialized yet, absence means an empty cache; the
+        // browser must not create, repair or otherwise signal through the shared
+        // filesystem.
+        var isDirectory: ObjCBool = false
+        guard manager.fileExists(atPath: objectDirectory.path, isDirectory: &isDirectory) else {
+            return ([], 0)
+        }
+        guard isDirectory.boolValue else {
+            throw CocoaError(.fileReadUnsupportedScheme)
+        }
+
         let files = try manager.contentsOfDirectory(
             at: objectDirectory,
             includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey],
