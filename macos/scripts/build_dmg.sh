@@ -70,6 +70,10 @@ if grep -Eq 'com\.apple\.security\.network\.(client|server)' "$dist/effective-en
     echo "signed application unexpectedly has network capability" >&2
     exit 1
 fi
+if ! grep -Fq 'group.io.nomad.shared' "$dist/effective-entitlements.plist"; then
+    echo "signed application lost its required Nomad App Group entitlement" >&2
+    exit 1
+fi
 
 linked="$(otool -L "$app/Contents/MacOS/NomadBrowser")"
 if printf '%s\n' "$linked" | grep -Eq '/(WebKit|CFNetwork|Network)\.framework/'; then
