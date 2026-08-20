@@ -6,7 +6,7 @@
     <true/>
     <key>com.apple.security.application-groups</key>
     <array>
-        <string>group.io.nomad.shared</string>
+        <string>N0MADTEST1.nomad.shared</string>
     </array>
 </dict>
 </plist>
