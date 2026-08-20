@@ -10,8 +10,12 @@ enum SharedCache {
     // build_dmg.sh writes this key into the signed app's Info.plist from the
     // same Team ID used to generate the application-groups entitlement. It is
     // release configuration, not a user preference.
+    //
+    // The browser belongs only to the browser-cache group. The network domain
+    // uses a different fabric-cache group; only the networkless materializer is
+    // allowed to bridge from fabric-cache to browser-cache.
     static let appGroupInfoKey = "NomadAppGroupIdentifier"
-    static let appGroupSuffix = ".nomad.shared"
+    static let appGroupSuffix = ".nomad.browser-cache"
     static let objectDirectoryName = "objects"
 
     static func appGroupIdentifier(
