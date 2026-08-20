@@ -1,0 +1,71 @@
+name: macOS browser screenshot
+
+on:
+  push:
+    branches: [agent/browser-screenshot]
+    paths:
+      - "macos/**"
+      - ".github/workflows/macos-screenshot.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  screenshot:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build real Nomad Browser app
+        env:
+          NOMAD_VERSION: 0.1.0-alpha.3
+          NOMAD_BUILD_NUMBER: ${{ github.run_number }}
+        run: bash macos/scripts/build_dmg.sh
+
+      - name: Launch app and capture real desktop
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="$GITHUB_WORKSPACE/dist/Nomad Browser.app"
+          test -d "$app"
+          open -n "$app"
+
+          deadline=$((SECONDS + 30))
+          while (( SECONDS < deadline )); do
+            if pgrep -x NomadBrowser >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+          pgrep -x NomadBrowser >/dev/null
+
+          # Let SwiftUI finish first render and load the bundled signed demo catalog.
+          sleep 8
+          osascript -e 'tell application "Nomad Browser" to activate' || true
+          sleep 2
+
+          screencapture -x "$GITHUB_WORKSPACE/dist/Nomad-Browser-screenshot.png"
+          test -s "$GITHUB_WORKSPACE/dist/Nomad-Browser-screenshot.png"
+          sips -g pixelWidth -g pixelHeight "$GITHUB_WORKSPACE/dist/Nomad-Browser-screenshot.png"
+
+          {
+            echo "commit=$GITHUB_SHA"
+            echo "runner=$(sw_vers -productVersion)"
+            echo "process=$(pgrep -x NomadBrowser | head -n1)"
+            shasum -a 256 "$GITHUB_WORKSPACE/dist/Nomad-Browser-screenshot.png"
+          } > "$GITHUB_WORKSPACE/dist/screenshot-evidence.txt"
+
+      - name: Upload screenshot evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nomad-Browser-real-screenshot-${{ github.sha }}
+          path: |
+            dist/Nomad-Browser-screenshot.png
+            dist/screenshot-evidence.txt
+            dist/effective-entitlements.plist
+            dist/*.dmg
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 30
