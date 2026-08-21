@@ -6,15 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"mime"
-	pathpkg "path"
 	"sort"
 	"strings"
-	"unicode/utf8"
+
+	"github.com/Jtensetti/nomad-browser/egress"
 )
 
 const (
 	MaxBundleEntries = 1024
-	MaxResourcePath  = 2048
+	MaxResourcePath  = egress.MaxResourcePath
 	MaxMediaType     = 255
 )
 
@@ -127,17 +127,10 @@ func (b *Bundle) Entry(resourcePath string) (Entry, bool) {
 	return entry, ok
 }
 
+// validateResourcePath delegates to the shared rule so that this gate and the
+// renderer URL policy cannot drift apart.
 func validateResourcePath(resourcePath string) error {
-	if resourcePath == "" || len(resourcePath) > MaxResourcePath || !utf8.ValidString(resourcePath) {
-		return errors.New("resource path is empty, too long, or invalid UTF-8")
-	}
-	if resourcePath[0] != '/' || strings.ContainsAny(resourcePath, "\\?#\x00") {
-		return errors.New("resource path must be an absolute clean path without URL syntax")
-	}
-	if pathpkg.Clean(resourcePath) != resourcePath {
-		return errors.New("resource path is not canonical")
-	}
-	return nil
+	return egress.CanonicalResourcePath(resourcePath)
 }
 
 func canonicalMediaType(raw string) (string, error) {
