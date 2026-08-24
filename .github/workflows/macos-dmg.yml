@@ -2,7 +2,10 @@ name: macOS verification build
 
 on:
   push:
-    branches: [agent/macos-browser]
+    # Deliberately not pinned to one branch. It used to run only on
+    # agent/macos-browser, so a push to any other branch built and shipped
+    # nothing through the security gate. The path filter below is what limits
+    # this workflow; a branch name should not be.
     paths:
       - "macos/**"
       - ".github/workflows/macos-dmg.yml"
