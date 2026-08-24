@@ -173,9 +173,12 @@ var forbiddenSwiftSymbols = []struct {
 	{regexp.MustCompile(`(^|[^\w.])(socket|connect|sendto|recvfrom|getaddrinfo|dlopen|dlsym)\s*\(`), "a raw syscall"},
 }
 
-func TestNoSwiftSourceReachesTheNetworkOrAnotherApplication(t *testing.T) {
+// swiftSources lists every .swift file under root, failing if there are none:
+// a scan over an empty set passes without checking anything.
+func swiftSources(t *testing.T, root string) []string {
+	t.Helper()
 	var sources []string
-	err := filepath.WalkDir(swiftSourceRoot, func(path string, entry os.DirEntry, err error) error {
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -188,11 +191,14 @@ func TestNoSwiftSourceReachesTheNetworkOrAnotherApplication(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(sources) == 0 {
-		t.Fatalf("no Swift sources found under %s, so this scan checked nothing", swiftSourceRoot)
+		t.Fatalf("no Swift sources found under %s, so this checked nothing", root)
 	}
 	sort.Strings(sources)
+	return sources
+}
 
-	for _, source := range sources {
+func TestNoSwiftSourceReachesTheNetworkOrAnotherApplication(t *testing.T) {
+	for _, source := range swiftSources(t, swiftSourceRoot) {
 		encoded, err := os.ReadFile(source)
 		if err != nil {
 			t.Fatal(err)
