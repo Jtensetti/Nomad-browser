@@ -10,6 +10,12 @@ import (
 	"github.com/Jtensetti/nomad-browser/localcache"
 )
 
+// A gate that skips has not passed. These resolve the package graph with
+// go/build, a library call over source that is present whenever tests run
+// at all, so a failure here means the capability boundary was not checked
+// rather than that this environment is unusual -- and an unchecked boundary
+// on the emission path is exactly what must not pass quietly.
+
 // F-07 asks for evidence that a failed load never reaches ordinary
 // networking. There was no fallback code path, and now there is a test that
 // says so: every way a load can fail is walked, and each must end in a local
@@ -92,7 +98,8 @@ func TestAdapterHasNoNetworkCapability(t *testing.T) {
 	output, err := exec.Command("go", "list", "-deps",
 		"github.com/Jtensetti/nomad-browser/adapter").Output()
 	if err != nil {
-		t.Skipf("cannot resolve the package graph in this environment: %v", err)
+		t.Fatalf("cannot resolve the package graph, so the capability boundary went "+
+			"unchecked: %v", err)
 	}
 	forbidden := map[string]struct{}{
 		"net": {}, "net/http": {}, "os/exec": {},
