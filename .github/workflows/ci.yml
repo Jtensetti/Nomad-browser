@@ -16,6 +16,17 @@ jobs:
           go mod tidy
           git diff --exit-code -- go.mod
           test -z "$(git status --porcelain -- go.mod go.sum)"
+      - name: Verify formatting, snapshots included
+        run: |
+          # Snapshots are excluded from nothing here: a formatting drift in a
+          # pinned copy is the first visible symptom of it diverging from the
+          # repository it was taken from.
+          unformatted="$(gofmt -l .)"
+          if test -n "$unformatted"; then
+            printf 'unformatted Go files:\n%s\n' "$unformatted"
+            gofmt -d .
+            exit 1
+          fi
       - run: go test -race ./...
       - run: go vet ./...
       - name: Test every pinned component snapshot
