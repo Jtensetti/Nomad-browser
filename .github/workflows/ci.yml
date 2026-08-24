@@ -18,6 +18,17 @@ jobs:
           test -z "$(git status --porcelain -- go.mod go.sum)"
       - run: go test -race ./...
       - run: go vet ./...
+      - name: Test every pinned component snapshot
+        run: |
+          # components/* are separate modules behind replace directives, so
+          # the root `go test ./...` never touches them. An untested snapshot
+          # is how nomad-testnet shipped a silent wrong-decode in its vendored
+          # rlnc decoder; the digest lock proves the files are the ones
+          # pinned, not that they work.
+          for module in components/*/; do
+            echo "== $module =="
+            (cd "$module" && go build ./... && go vet ./... && go test -race -count=1 ./...)
+          done
       - name: Scan dependencies for reachable vulnerabilities
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
