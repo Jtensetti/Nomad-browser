@@ -63,3 +63,28 @@ func TestVerifiedResourcePathHasNoNetworkPlannerOrSemanticQuery(t *testing.T) {
 		}
 	}
 }
+
+// An updater that fetches is a network client inside the binary that is
+// supposed to have none, and every guarantee downstream of "this process
+// cannot open a socket" would then rest on that one component behaving.
+//
+// So the update package verifies bytes the user already has and downloads
+// nothing. That division is enforced here rather than left as an intention:
+// the package must not be able to reach a socket, launch a process, or read
+// the private selection side.
+func TestUpdateVerifierHasNoNetworkOrProcessCapability(t *testing.T) {
+	deps := dependencies(t, "./update")
+	for _, forbidden := range []string{
+		"net",
+		"net/http",
+		"net/url",
+		"os/exec",
+		"github.com/Jtensetti/nomad-constant-rate-fabric/fabric",
+		"github.com/Jtensetti/nomad-semantic-basins/basin",
+	} {
+		if deps[forbidden] {
+			t.Errorf("the update verifier reaches %s, so it could fetch a release "+
+				"rather than only checking one", forbidden)
+		}
+	}
+}
