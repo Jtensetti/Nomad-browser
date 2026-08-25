@@ -109,7 +109,7 @@ struct ContentView: View {
                     VStack(spacing: 8) {
                         Text("Ingen adressrad. Ingen DNS. Ingen vanlig webb.")
                             .font(.headline)
-                        Text("Klienten läser endast kryptografiskt verifierade objekt som redan finns i den lokala Nomad-cachen. Objektintegritet och publicistidentitet visas som separata påståenden.")
+                        Text("Klienten läser endast kryptografiskt verifierade objekt som redan finns i den lokala Nomad-cachen. Objektintegritet och SiteID-status visas som separata påståenden.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
@@ -192,6 +192,7 @@ struct ContentView: View {
                         .textSelection(.enabled)
                     HStack {
                         Text(verified.document.publisherName)
+                        Text("• självuppgivet namn")
                         Text("•")
                         Text(verified.document.publishedAt)
                     }
@@ -211,17 +212,27 @@ struct ContentView: View {
         case .verified:
             HStack(spacing: 6) {
                 Image(systemName: "checkmark.seal.fill")
-                Text("Objekt verifierat · publicist verifierad")
+                Text("Objekt verifierat · aktuell SiteID-head verifierad")
                 if let siteID = verified.siteID {
-                    Text("· SiteID \(String(siteID.prefix(12)))…")
+                    Text("· \(String(siteID.prefix(12)))…")
                 }
             }
             .font(.caption2)
             .foregroundStyle(.green)
+        case .unanchored:
+            HStack(spacing: 6) {
+                Image(systemName: "link.badge.plus")
+                Text("Objekt verifierat · SiteID-kedja giltig men ej rollback-förankrad")
+                if let siteID = verified.siteID {
+                    Text("· \(String(siteID.prefix(12)))…")
+                }
+            }
+            .font(.caption2)
+            .foregroundStyle(.orange)
         case .unknown:
             HStack(spacing: 6) {
                 Image(systemName: "checkmark.shield.fill")
-                Text("Objekt verifierat · publicist okänd")
+                Text("Objekt verifierat · ingen SiteID-bevisning")
                 Text("· nyckel \(verified.publisherFingerprint)")
             }
             .font(.caption2)
@@ -229,7 +240,7 @@ struct ContentView: View {
         case .invalid:
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.shield.fill")
-                Text("Objekt verifierat · identitetsanspråk ogiltigt")
+                Text("Objekt verifierat · SiteID-bevisning ogiltig")
             }
             .font(.caption2)
             .foregroundStyle(.red)
