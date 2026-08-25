@@ -44,6 +44,8 @@ jobs:
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
           "$(go env GOPATH)/bin/govulncheck" ./...
+      - name: Verify the build is deterministic across source paths
+        run: ./scripts/check-reproducible.sh
       - name: Generate SBOM
         run: ./scripts/generate-sbom.sh sbom.cdx.json
       - name: Generate provenance for the SBOM
