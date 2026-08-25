@@ -31,7 +31,7 @@ final class NomadStore: ObservableObject {
                     throw CocoaError(.fileNoSuchFile)
                 }
                 let data = try Self.boundedData(at: builtInURL)
-                envelopes.append(contentsOf: try JSONDecoder().decode([SignedEnvelope].self, from: data))
+                envelopes.append(contentsOf: try SignedEnvelopeDecoder.decodeCatalog(data))
             } catch {
                 lastError = error.localizedDescription
             }
@@ -101,7 +101,7 @@ final class NomadStore: ObservableObject {
         var rejected = 0
         for file in candidates {
             do {
-                envelopes.append(try JSONDecoder().decode(SignedEnvelope.self, from: Self.boundedData(at: file)))
+                envelopes.append(try SignedEnvelopeDecoder.decode(Self.boundedData(at: file)))
             } catch {
                 // One hostile or partially written object must not suppress the
                 // other immutable cache entries.
