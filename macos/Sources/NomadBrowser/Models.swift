@@ -17,6 +17,23 @@ struct SignedEnvelope: Codable, Sendable {
     let contentHash: String
     let publisherKey: String
     let signature: String
+    let identity: SiteIdentityBundle?
+
+    init(
+        version: Int,
+        payload: String,
+        contentHash: String,
+        publisherKey: String,
+        signature: String,
+        identity: SiteIdentityBundle? = nil
+    ) {
+        self.version = version
+        self.payload = payload
+        self.contentHash = contentHash
+        self.publisherKey = publisherKey
+        self.signature = signature
+        self.identity = identity
+    }
 }
 
 enum PublisherIdentityState: String, Codable, Sendable, Hashable {
@@ -69,8 +86,9 @@ enum ObjectVerifier {
 
     // Object verification establishes integrity only. Publisher identity is a
     // separate SiteID claim and must never be inferred from an embedded key or
-    // a build-time allowlist. Until a verified SiteID chain and publication
-    // record are supplied, the honest result is publisherIdentity == .unknown.
+    // a build-time allowlist. A complete valid identity bundle can promote the
+    // identity claim; malformed or contradictory identity evidence cannot turn
+    // a valid object into a different object-integrity conclusion.
     static func verify(_ envelope: SignedEnvelope) throws -> VerifiedDocument {
         guard envelope.version == 1 else {
             throw ObjectVerificationError.unsupportedVersion
@@ -90,7 +108,7 @@ enum ObjectVerifier {
         }
 
         let digest = Data(SHA256.hash(data: payload))
-        guard digest.hexString == envelope.contentHash.lowercased(), envelope.contentHash == envelope.contentHash.lowercased() else {
+        guard digest.hexString == envelope.contentHash, envelope.contentHash == envelope.contentHash.lowercased() else {
             throw ObjectVerificationError.commitmentMismatch
         }
         var signingMessage = objectDomain
@@ -127,12 +145,29 @@ enum ObjectVerifier {
             throw ObjectVerificationError.invalidDocument
         }
 
+        var identityState = PublisherIdentityState.unknown
+        var verifiedSiteID: String?
+        if let identity = envelope.identity {
+            do {
+                verifiedSiteID = try SiteIdentityVerifier.resolve(
+                    bundle: identity,
+                    object: payload,
+                    objectPublisherKey: publisherKey,
+                    objectSignature: signature
+                )
+                identityState = .verified
+            } catch {
+                identityState = .invalid
+                verifiedSiteID = nil
+            }
+        }
+
         return VerifiedDocument(
             id: digest.hexString,
             document: document,
             publisherFingerprint: String(Data(SHA256.hash(data: publisherKey)).hexString.prefix(16)),
-            publisherIdentity: .unknown,
-            siteID: nil
+            publisherIdentity: identityState,
+            siteID: verifiedSiteID
         )
     }
 }
