@@ -123,6 +123,11 @@ enum ObjectVerifier {
             throw ObjectVerificationError.invalidSignature
         }
 
+        do {
+            try StrictJSON.validateDocumentPayload(payload)
+        } catch {
+            throw ObjectVerificationError.invalidDocument
+        }
         let document: NomadDocument
         do {
             document = try JSONDecoder().decode(NomadDocument.self, from: payload)
