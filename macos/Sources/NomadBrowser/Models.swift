@@ -38,6 +38,7 @@ struct SignedEnvelope: Codable, Sendable {
 
 enum PublisherIdentityState: String, Codable, Sendable, Hashable {
     case verified
+    case unanchored
     case unknown
     case invalid
 }
@@ -86,9 +87,10 @@ enum ObjectVerifier {
 
     // Object verification establishes integrity only. Publisher identity is a
     // separate SiteID claim and must never be inferred from an embedded key or
-    // a build-time allowlist. A complete valid identity bundle can promote the
-    // identity claim; malformed or contradictory identity evidence cannot turn
-    // a valid object into a different object-integrity conclusion.
+    // a build-time allowlist. A self-consistent SiteID bundle is still not a
+    // current identity anchor: without monotonic local state, an attacker could
+    // replay an older valid chain. Such evidence is therefore UNANCHORED until
+    // the materializer supplies a persisted, rollback-resistant accepted head.
     static func verify(_ envelope: SignedEnvelope) throws -> VerifiedDocument {
         guard envelope.version == 1 else {
             throw ObjectVerificationError.unsupportedVersion
@@ -151,19 +153,19 @@ enum ObjectVerifier {
         }
 
         var identityState = PublisherIdentityState.unknown
-        var verifiedSiteID: String?
+        var siteID: String?
         if let identity = envelope.identity {
             do {
-                verifiedSiteID = try SiteIdentityVerifier.resolve(
+                siteID = try SiteIdentityVerifier.resolve(
                     bundle: identity,
                     object: payload,
                     objectPublisherKey: publisherKey,
                     objectSignature: signature
                 )
-                identityState = .verified
+                identityState = .unanchored
             } catch {
                 identityState = .invalid
-                verifiedSiteID = nil
+                siteID = nil
             }
         }
 
@@ -172,7 +174,7 @@ enum ObjectVerifier {
             document: document,
             publisherFingerprint: String(Data(SHA256.hash(data: publisherKey)).hexString.prefix(16)),
             publisherIdentity: identityState,
-            siteID: verifiedSiteID
+            siteID: siteID
         )
     }
 }
