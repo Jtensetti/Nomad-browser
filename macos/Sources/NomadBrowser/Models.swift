@@ -19,11 +19,20 @@ struct SignedEnvelope: Codable, Sendable {
     let signature: String
 }
 
+enum PublisherIdentityState: String, Codable, Sendable, Hashable {
+    case verified
+    case unknown
+    case invalid
+}
+
 struct VerifiedDocument: Identifiable, Sendable, Hashable {
     let id: String
     let document: NomadDocument
     let publisherFingerprint: String
-    let trustedPublisher: Bool
+    let publisherIdentity: PublisherIdentityState
+    let siteID: String?
+
+    var trustedPublisher: Bool { publisherIdentity == .verified }
 }
 
 enum ObjectVerificationError: LocalizedError, Equatable {
@@ -32,7 +41,6 @@ enum ObjectVerificationError: LocalizedError, Equatable {
     case objectTooLarge
     case commitmentMismatch
     case invalidSignature
-    case untrustedPublisher
     case unsupportedMediaType
     case invalidDocument
 
@@ -43,7 +51,6 @@ enum ObjectVerificationError: LocalizedError, Equatable {
         case .objectTooLarge: return "Objektet överskrider säkerhetsgränsen."
         case .commitmentMismatch: return "Objektets SHA-256-åtagande stämmer inte."
         case .invalidSignature: return "Objektets Ed25519-signatur är ogiltig."
-        case .untrustedPublisher: return "Objektets publiceringsnyckel är inte betrodd av denna klient."
         case .unsupportedMediaType: return "Objektets medietyp stöds inte av den säkra renderaren."
         case .invalidDocument: return "Dokumentets innehåll är ogiltigt."
         }
@@ -59,17 +66,22 @@ enum ObjectVerifier {
     static let maximumPublishedAtCharacters = 64
     static let maximumTags = 64
     static let objectDomain = Data("nomad-object-v1".utf8)
-    static let trustedDemoPublisher = Data(base64Encoded: "SsX0q+oi8C1+v0yTSrltfxYkztmjrdJNE/gN7XN0jEk=")!
-    static let trustedPublisherKeys: Set<Data> = [trustedDemoPublisher]
 
+    // Object verification establishes integrity only. Publisher identity is a
+    // separate SiteID claim and must never be inferred from an embedded key or
+    // a build-time allowlist. Until a verified SiteID chain and publication
+    // record are supplied, the honest result is publisherIdentity == .unknown.
     static func verify(_ envelope: SignedEnvelope) throws -> VerifiedDocument {
         guard envelope.version == 1 else {
             throw ObjectVerificationError.unsupportedVersion
         }
         guard
             let payload = Data(base64Encoded: envelope.payload),
+            payload.base64EncodedString() == envelope.payload,
             let publisherKey = Data(base64Encoded: envelope.publisherKey),
+            publisherKey.base64EncodedString() == envelope.publisherKey,
             let signature = Data(base64Encoded: envelope.signature),
+            signature.base64EncodedString() == envelope.signature,
             payload.count <= maximumPayloadBytes,
             publisherKey.count == 32,
             signature.count == 64
@@ -78,7 +90,7 @@ enum ObjectVerifier {
         }
 
         let digest = Data(SHA256.hash(data: payload))
-        guard digest.hexString == envelope.contentHash.lowercased() else {
+        guard digest.hexString == envelope.contentHash.lowercased(), envelope.contentHash == envelope.contentHash.lowercased() else {
             throw ObjectVerificationError.commitmentMismatch
         }
         var signingMessage = objectDomain
@@ -91,9 +103,6 @@ enum ObjectVerifier {
         }
         guard key.isValidSignature(signature, for: signingMessage) else {
             throw ObjectVerificationError.invalidSignature
-        }
-        guard trustedPublisherKeys.contains(publisherKey) else {
-            throw ObjectVerificationError.untrustedPublisher
         }
 
         let document: NomadDocument
@@ -122,7 +131,8 @@ enum ObjectVerifier {
             id: digest.hexString,
             document: document,
             publisherFingerprint: String(Data(SHA256.hash(data: publisherKey)).hexString.prefix(16)),
-            trustedPublisher: true
+            publisherIdentity: .unknown,
+            siteID: nil
         )
     }
 }
