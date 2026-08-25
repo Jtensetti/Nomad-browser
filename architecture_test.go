@@ -72,6 +72,45 @@ func TestVerifiedResourcePathHasNoNetworkPlannerOrSemanticQuery(t *testing.T) {
 // nothing. That division is enforced here rather than left as an intention:
 // the package must not be able to reach a socket, launch a process, or read
 // the private selection side.
+// The browser core's guarantees rest on the release process being unable to
+// open a socket. That was asserted for exactly one package, the update
+// verifier, and it was false for another: ./selector transitively linked net,
+// net/http and crypto/tls, because github.com/Jtensetti/nomad-semantic-basins
+// shipped a loopback HTTP embedder in the same package as the query handling.
+// Nothing constructed it; the dependency arrived by import alone, which is
+// precisely what a dependency gate is for and this one did not look. The
+// embedder now lives in basin/loopback, which a deployment opts into.
+//
+// So the check covers every package that can end up in a Nomad process,
+// rather than the one somebody remembered to name.
+func TestNoBrowserCorePackageCanReachASocket(t *testing.T) {
+	// Socket and process capability only. net/url is deliberately absent: it
+	// parses strings and cannot open anything, and ./egress exists precisely
+	// to decide which URLs a renderer may ask for. Forbidding it there would
+	// be a gate against the package doing its job. Where handling a URL at
+	// all is out of character -- the update verifier -- it stays forbidden,
+	// in the test below.
+	forbidden := []string{
+		"net",
+		"net/http",
+		"crypto/tls",
+		"os/exec",
+		"github.com/Jtensetti/nomad-semantic-basins/basin/loopback",
+	}
+	for _, pkg := range []string{
+		"./adapter", "./egress", "./localcache", "./planner", "./selector",
+		"./update", "./cmd/nomad-browser-verify",
+	} {
+		deps := dependencies(t, pkg)
+		for _, banned := range forbidden {
+			if deps[banned] {
+				t.Errorf("%s links %s, so a Nomad process built from it can open a "+
+					"socket or launch a process", pkg, banned)
+			}
+		}
+	}
+}
+
 func TestUpdateVerifierHasNoNetworkOrProcessCapability(t *testing.T) {
 	deps := dependencies(t, "./update")
 	for _, forbidden := range []string{
