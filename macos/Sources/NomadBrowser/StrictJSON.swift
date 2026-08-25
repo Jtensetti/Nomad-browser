@@ -15,7 +15,12 @@ enum StrictJSON {
         } catch {
             throw StrictJSONError.invalidJSON
         }
-        try DuplicateKeyScanner(data: data).validate()
+
+        // Duplicate keys must be rejected before Foundation is allowed to
+        // collapse an object to a dictionary. The scanner is intentionally
+        // independent of JSONSerialization's duplicate-key policy.
+        var scanner = DuplicateKeyScanner(data: data)
+        try scanner.validate()
         return object
     }
 
@@ -60,14 +65,21 @@ enum StrictJSON {
         guard let identity = object as? [String: Any] else {
             throw StrictJSONError.invalidShape("identity must be an object")
         }
-        try exactKeys(identity, required: ["descriptors", "publication", "manifest"], optional: [], label: "identity")
+        try exactKeys(
+            identity,
+            required: ["descriptors", "publication", "manifest"],
+            optional: [],
+            label: "identity"
+        )
         guard let descriptors = identity["descriptors"] as? [Any] else {
             throw StrictJSONError.invalidShape("identity descriptors must be an array")
         }
         guard !descriptors.isEmpty, descriptors.count <= SiteIdentityVerifier.maxDescriptors else {
             throw StrictJSONError.invalidShape("identity descriptor chain is empty or too long")
         }
-        for descriptor in descriptors { try validateDescriptor(descriptor) }
+        for descriptor in descriptors {
+            try validateDescriptor(descriptor)
+        }
         guard let publication = identity["publication"] else {
             throw StrictJSONError.invalidShape("identity publication is missing")
         }
@@ -90,15 +102,26 @@ enum StrictJSON {
         guard let recovery = descriptor["recovery"] as? [String: Any] else {
             throw StrictJSONError.invalidShape("site recovery policy must be an object")
         }
-        try exactKeys(recovery, required: ["threshold", "keys"], optional: [], label: "site recovery policy")
-        guard let authorizations = descriptor["authorizations"] as? [Any], authorizations.count <= SiteIdentityVerifier.maxAuthorizations else {
+        try exactKeys(
+            recovery,
+            required: ["threshold", "keys"],
+            optional: [],
+            label: "site recovery policy"
+        )
+        guard let authorizations = descriptor["authorizations"] as? [Any],
+              authorizations.count <= SiteIdentityVerifier.maxAuthorizations else {
             throw StrictJSONError.invalidShape("site authorizations are not a bounded array")
         }
         for authorization in authorizations {
             guard let authorization = authorization as? [String: Any] else {
                 throw StrictJSONError.invalidShape("site authorization must be an object")
             }
-            try exactKeys(authorization, required: ["role", "key", "signature"], optional: [], label: "site authorization")
+            try exactKeys(
+                authorization,
+                required: ["role", "key", "signature"],
+                optional: [],
+                label: "site authorization"
+            )
         }
     }
 
@@ -154,7 +177,7 @@ enum SignedEnvelopeDecoder {
 
 private struct DuplicateKeyScanner {
     private let bytes: [UInt8]
-    private var index: Int = 0
+    private var index = 0
 
     init(data: Data) {
         bytes = Array(data)
@@ -164,12 +187,16 @@ private struct DuplicateKeyScanner {
         skipWhitespace()
         try parseValue()
         skipWhitespace()
-        guard index == bytes.count else { throw StrictJSONError.invalidJSON }
+        guard index == bytes.count else {
+            throw StrictJSONError.invalidJSON
+        }
     }
 
     private mutating func parseValue() throws {
         skipWhitespace()
-        guard index < bytes.count else { throw StrictJSONError.invalidJSON }
+        guard index < bytes.count else {
+            throw StrictJSONError.invalidJSON
+        }
         switch bytes[index] {
         case 0x7b: try parseObject() // {
         case 0x5b: try parseArray()  // [
@@ -186,17 +213,26 @@ private struct DuplicateKeyScanner {
         skipWhitespace()
         var keys = Set<String>()
         if consumeIf(0x7d) { return }
+
         while true {
             skipWhitespace()
-            guard index < bytes.count, bytes[index] == 0x22 else { throw StrictJSONError.invalidJSON }
+            guard index < bytes.count, bytes[index] == 0x22 else {
+                throw StrictJSONError.invalidJSON
+            }
             let key = try parseString()
-            guard keys.insert(key).inserted else { throw StrictJSONError.duplicateKey(key) }
+            guard keys.insert(key).inserted else {
+                throw StrictJSONError.duplicateKey(key)
+            }
             skipWhitespace()
-            guard consumeIf(0x3a) else { throw StrictJSONError.invalidJSON }
+            guard consumeIf(0x3a) else {
+                throw StrictJSONError.invalidJSON
+            }
             try parseValue()
             skipWhitespace()
             if consumeIf(0x7d) { return }
-            guard consumeIf(0x2c) else { throw StrictJSONError.invalidJSON }
+            guard consumeIf(0x2c) else {
+                throw StrictJSONError.invalidJSON
+            }
         }
     }
 
@@ -204,17 +240,22 @@ private struct DuplicateKeyScanner {
         index += 1
         skipWhitespace()
         if consumeIf(0x5d) { return }
+
         while true {
             try parseValue()
             skipWhitespace()
             if consumeIf(0x5d) { return }
-            guard consumeIf(0x2c) else { throw StrictJSONError.invalidJSON }
+            guard consumeIf(0x2c) else {
+                throw StrictJSONError.invalidJSON
+            }
         }
     }
 
     private mutating func parseString() throws -> String {
         let start = index
-        guard consumeIf(0x22) else { throw StrictJSONError.invalidJSON }
+        guard consumeIf(0x22) else {
+            throw StrictJSONError.invalidJSON
+        }
         var escaped = false
         while index < bytes.count {
             let byte = bytes[index]
@@ -228,35 +269,38 @@ private struct DuplicateKeyScanner {
                 continue
             }
             if byte == 0x22 {
-                let slice = Data(bytes[start..<index])
+                let rawString = Data(bytes[start..<index])
                 do {
-                    return try JSONDecoder().decode(String.self, from: slice)
+                    // Decoding the isolated JSON string makes escaped-equivalent
+                    // spellings (for example "site_id" and "site_\u0069d")
+                    // compare as the same semantic object key.
+                    return try JSONDecoder().decode(String.self, from: rawString)
                 } catch {
                     throw StrictJSONError.invalidJSON
                 }
             }
-            if byte < 0x20 { throw StrictJSONError.invalidJSON }
+            if byte < 0x20 {
+                throw StrictJSONError.invalidJSON
+            }
         }
         throw StrictJSONError.invalidJSON
     }
 
     private mutating func parseNumber() throws {
         let start = index
-        while index < bytes.count {
-            switch bytes[index] {
-            case 0x30...0x39, 0x2d, 0x2b, 0x2e, 0x45, 0x65:
-                index += 1
-            default:
-                break
-            }
-            if index < bytes.count {
-                let byte = bytes[index]
-                if !(byte == 0x2d || byte == 0x2b || byte == 0x2e || byte == 0x45 || byte == 0x65 || (0x30...0x39).contains(byte)) {
-                    break
-                }
-            }
+        while index < bytes.count, isNumberByte(bytes[index]) {
+            index += 1
         }
-        guard index > start else { throw StrictJSONError.invalidJSON }
+        // JSONSerialization already established that the token is a valid JSON
+        // number. This scanner only has to consume the same token boundary.
+        guard index > start else {
+            throw StrictJSONError.invalidJSON
+        }
+    }
+
+    private func isNumberByte(_ byte: UInt8) -> Bool {
+        byte == 0x2d || byte == 0x2b || byte == 0x2e || byte == 0x45 || byte == 0x65 ||
+            (0x30...0x39).contains(byte)
     }
 
     private mutating func consumeLiteral(_ literal: String) throws {
@@ -269,11 +313,15 @@ private struct DuplicateKeyScanner {
     }
 
     private mutating func skipWhitespace() {
-        while index < bytes.count, [0x20, 0x09, 0x0a, 0x0d].contains(bytes[index]) { index += 1 }
+        while index < bytes.count, [0x20, 0x09, 0x0a, 0x0d].contains(bytes[index]) {
+            index += 1
+        }
     }
 
     private mutating func consumeIf(_ byte: UInt8) -> Bool {
-        guard index < bytes.count, bytes[index] == byte else { return false }
+        guard index < bytes.count, bytes[index] == byte else {
+            return false
+        }
         index += 1
         return true
     }
