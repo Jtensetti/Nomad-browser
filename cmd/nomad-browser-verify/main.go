@@ -12,11 +12,13 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/Jtensetti/nomad-browser/update"
 )
 
-// releaseKey is the public half of the release signing key, compiled in.
+// releaseKeys are the public halves of the release approvers' keys, compiled
+// in, one per line of hex.
 //
 // It is a build constant rather than a file or a flag on purpose: a trusted
 // key that an attacker can replace alongside the manifest authenticates
@@ -26,13 +28,14 @@ import (
 //
 // It is empty because no release key has been generated yet. See
 // nomad-protocol production/EXTERNAL_BLOCKERS.md, EB-7.
-const releaseKey = ""
+const releaseKeys = ""
 
 func main() {
 	manifestPath := flag.String("manifest", "", "path to the signed release manifest")
 	artifactPath := flag.String("artifact", "", "path to the installer this manifest describes")
 	watermarkPath := flag.String("watermark", "", "path to the installed-version watermark")
-	overrideKey := flag.String("release-key", "", "hex release public key, for exercising the "+
+	overrideKey := flag.String("release-key", "", "comma-separated hex release public keys, "+
+		"for exercising the "+
 		"mechanism against a test key; the compiled-in key is used when this is empty")
 	dryRun := flag.Bool("dry-run", false, "verify without advancing the watermark")
 	flag.Parse()
@@ -49,7 +52,7 @@ func run(manifestPath, artifactPath, watermarkPath, overrideKey string, dryRun b
 		return errors.New("a manifest, an artifact and a watermark path are all required")
 	}
 
-	trusted, err := trustedKey(overrideKey)
+	trusted, err := trustedKeys(overrideKey)
 	if err != nil {
 		return err
 	}
@@ -90,26 +93,44 @@ func run(manifestPath, artifactPath, watermarkPath, overrideKey string, dryRun b
 	return nil
 }
 
-func trustedKey(override string) (ed25519.PublicKey, error) {
+// trustedKeys resolves the set of approvers this build accepts.
+//
+// A set, not a key: a release needs approvals from two distinct people, and
+// the count is enforced by update.Decode rather than here so that every caller
+// gets the same rule. What this function must not do is quietly return one key
+// and let the rule be satisfied by whoever holds it.
+func trustedKeys(override string) ([]ed25519.PublicKey, error) {
+	source, from := releaseKeys, "compiled-in"
 	if override != "" {
-		decoded, err := hex.DecodeString(override)
-		if err != nil || len(decoded) != ed25519.PublicKeySize {
-			return nil, errors.New("-release-key must be a hex ed25519 public key")
+		source, from = override, "command line"
+		fmt.Fprintln(os.Stderr, "warning: verifying against keys supplied on the command line. "+
+			"This exercises the mechanism; it establishes nothing about who approved this "+
+			"release, because an attacker who can substitute the manifest can substitute "+
+			"these keys with it.")
+	}
+	if source == "" {
+		return nil, errors.New("this build has no compiled-in release keys, so it cannot " +
+			"establish who approved anything. No release keys have been generated yet " +
+			"(nomad-protocol production/EXTERNAL_BLOCKERS.md, EB-7, and EB-6 for the second " +
+			"approver). Pass -release-key to exercise the mechanism against test keys")
+	}
+	var keys []ed25519.PublicKey
+	for _, field := range strings.Split(source, ",") {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			continue
 		}
-		fmt.Fprintln(os.Stderr, "warning: verifying against a key supplied on the command line. "+
-			"This exercises the mechanism; it establishes nothing about who signed this release, "+
-			"because an attacker who can substitute the manifest can substitute this key with it.")
-		return decoded, nil
+		decoded, err := hex.DecodeString(field)
+		if err != nil || len(decoded) != ed25519.PublicKeySize {
+			return nil, fmt.Errorf("the %s release keys contain a value that is not a hex "+
+				"ed25519 public key", from)
+		}
+		keys = append(keys, decoded)
 	}
-	if releaseKey == "" {
-		return nil, errors.New("this build has no compiled-in release key, so it cannot " +
-			"establish who signed anything. No release key has been generated yet " +
-			"(nomad-protocol production/EXTERNAL_BLOCKERS.md, EB-7). Pass -release-key to " +
-			"exercise the mechanism against a test key")
+	if len(keys) < update.MinimumApprovals {
+		return nil, fmt.Errorf("this build trusts %d release approver(s) and a release needs "+
+			"%d. One person who can approve alone is not a two-person process",
+			len(keys), update.MinimumApprovals)
 	}
-	decoded, err := hex.DecodeString(releaseKey)
-	if err != nil || len(decoded) != ed25519.PublicKeySize {
-		return nil, errors.New("the compiled-in release key is malformed")
-	}
-	return decoded, nil
+	return keys, nil
 }

@@ -9,42 +9,63 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 type fixture struct {
-	trusted   ed25519.PublicKey
-	key       ed25519.PrivateKey
+	trusted   []ed25519.PublicKey
+	keys      []ed25519.PrivateKey
 	artifact  []byte
 	directory string
 }
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
-	public, private, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
+	// Two approvers, because a release needs two. The fixture holds both
+	// private halves so tests can build a properly approved release; the
+	// point of the two-person rule is that no one person holds both in
+	// production, which is EB-6 and not something a test can supply.
+	var trusted []ed25519.PublicKey
+	var keys []ed25519.PrivateKey
+	for approver := 0; approver < MinimumApprovals; approver++ {
+		public, private, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		trusted = append(trusted, public)
+		keys = append(keys, private)
 	}
 	artifact := make([]byte, 4096)
 	if _, err := rand.Read(artifact); err != nil {
 		t.Fatal(err)
 	}
-	return &fixture{trusted: public, key: private, artifact: artifact, directory: t.TempDir()}
+	return &fixture{trusted: trusted, keys: keys, artifact: artifact, directory: t.TempDir()}
 }
 
-func (f *fixture) release(t *testing.T, version, channel string) []byte {
+// approved builds a manifest carrying the given approvers' signatures.
+func (f *fixture) approved(t *testing.T, version, channel string, approvers ...int) Manifest {
 	t.Helper()
 	digest := sha256.Sum256(f.artifact)
-	manifest, err := Sign(Manifest{
+	manifest := Prepare(Manifest{
 		Release: version, Channel: channel,
 		ArtifactName:   "NomadBrowser-" + version + ".dmg",
 		ArtifactDigest: hex.EncodeToString(digest[:]),
 		ArtifactBytes:  int64(len(f.artifact)),
-	}, f.key)
-	if err != nil {
-		t.Fatal(err)
+	})
+	for _, approver := range approvers {
+		var err error
+		manifest, err = Approve(manifest, f.keys[approver])
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
-	encoded, err := json.Marshal(manifest)
+	return manifest
+}
+
+func (f *fixture) release(t *testing.T, version, channel string) []byte {
+	t.Helper()
+	encoded, err := json.Marshal(f.approved(t, version, channel, 0, 1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +169,7 @@ func TestTwoArtifactsClaimingOneVersionAreRefusedRatherThanResolved(t *testing.T
 	}
 	// A second, differently built artifact, validly signed, same version.
 	other := newFixture(t)
-	other.key, other.trusted = f.key, f.trusted
+	other.keys, other.trusted = f.keys, f.trusted
 	substitute := mustDecode(t, f, other.release(t, "1.0.0", "stable"))
 
 	err := AcceptMonotonic(f.watermark(), substitute)
@@ -206,15 +227,22 @@ func TestEveryMalformedManifestIsRefused(t *testing.T) {
 		"not json":                 []byte("this is not a manifest"),
 		"trailing data":            append(append([]byte(nil), valid...), []byte(`{"extra":1}`)...),
 		"unknown field":            tamper(func(m map[string]any) { m["surprise"] = true }),
-		"unknown manifest version": tamper(func(m map[string]any) { m["version"] = "nomad-browser-release-v2" }),
-		"broken signature":         tamper(func(m map[string]any) { m["signature"] = "00" + m["signature"].(string)[2:] }),
-		"release moved":            tamper(func(m map[string]any) { m["release"] = "9.9.9" }),
-		"channel moved":            tamper(func(m map[string]any) { m["channel"] = "canary" }),
-		"digest moved":             tamper(func(m map[string]any) { m["artifact_digest"] = hex.EncodeToString(make([]byte, 32)) }),
-		"size moved":               tamper(func(m map[string]any) { m["artifact_bytes"] = 4097 }),
-		"artifact name is a path":  tamper(func(m map[string]any) { m["artifact_name"] = "../elsewhere.dmg" }),
-		"zero size":                tamper(func(m map[string]any) { m["artifact_bytes"] = 0 }),
-		"malformed key":            tamper(func(m map[string]any) { m["public_key"] = "zz" }),
+		"unknown manifest version": tamper(func(m map[string]any) { m["version"] = "nomad-browser-release-v9" }),
+		"the superseded v1 format": tamper(func(m map[string]any) { m["version"] = "nomad-browser-release-v1" }),
+		"broken approval": tamper(func(m map[string]any) {
+			approvals := m["approvals"].([]any)
+			first := approvals[0].(map[string]any)
+			first["signature"] = "00" + first["signature"].(string)[2:]
+		}),
+		"release moved":           tamper(func(m map[string]any) { m["release"] = "9.9.9" }),
+		"channel moved":           tamper(func(m map[string]any) { m["channel"] = "canary" }),
+		"digest moved":            tamper(func(m map[string]any) { m["artifact_digest"] = hex.EncodeToString(make([]byte, 32)) }),
+		"size moved":              tamper(func(m map[string]any) { m["artifact_bytes"] = 4097 }),
+		"artifact name is a path": tamper(func(m map[string]any) { m["artifact_name"] = "../elsewhere.dmg" }),
+		"zero size":               tamper(func(m map[string]any) { m["artifact_bytes"] = 0 }),
+		"malformed approver key": tamper(func(m map[string]any) {
+			m["approvals"].([]any)[0].(map[string]any)["public_key"] = "zz"
+		}),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := Decode(encoded, f.trusted); !errors.Is(err, ErrUnverified) {
@@ -324,5 +352,147 @@ func TestARefusedInstallLeavesTheWatermarkUnchanged(t *testing.T) {
 	// not wedge the mechanism.
 	if err := AcceptMonotonic(f.watermark(), mustDecode(t, f, f.release(t, "1.6.0", "stable"))); err != nil {
 		t.Fatalf("a valid update was refused after an earlier refusal: %v", err)
+	}
+}
+
+// A two-person release process written in a document holds exactly as long as
+// everyone remembers it and nobody is in a hurry. These are the ways one
+// person defeats it, each of which must be refused by the machine that would
+// otherwise install the release.
+func TestOnePersonCannotApproveARelease(t *testing.T) {
+	f := newFixture(t)
+
+	encode := func(t *testing.T, manifest Manifest) []byte {
+		t.Helper()
+		encoded, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return encoded
+	}
+
+	t.Run("one approval", func(t *testing.T) {
+		encoded := encode(t, f.approved(t, "1.0.0", "stable", 0))
+		if _, err := Decode(encoded, f.trusted); !errors.Is(err, ErrUnverified) {
+			t.Fatalf("a release with one approval was accepted: %v", err)
+		}
+	})
+
+	t.Run("no approvals at all", func(t *testing.T) {
+		encoded := encode(t, f.approved(t, "1.0.0", "stable"))
+		if _, err := Decode(encoded, f.trusted); !errors.Is(err, ErrUnverified) {
+			t.Fatalf("an unapproved release was accepted: %v", err)
+		}
+	})
+
+	// The cheapest attack on anything that counts signatures rather than
+	// people: sign twice.
+	t.Run("the same approver twice", func(t *testing.T) {
+		encoded := encode(t, f.approved(t, "1.0.0", "stable", 0, 0))
+		if _, err := Decode(encoded, f.trusted); !errors.Is(err, ErrUnverified) {
+			t.Fatalf("one approver signing twice satisfied a two-person rule: %v", err)
+		}
+	})
+
+	// One real approver plus one key nobody trusts is still one approver.
+	t.Run("one trusted approver and one stranger", func(t *testing.T) {
+		stranger := newFixture(t)
+		manifest := f.approved(t, "1.0.0", "stable", 0)
+		approved, err := Approve(manifest, stranger.keys[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Decode(encode(t, approved), f.trusted); !errors.Is(err, ErrUnverified) {
+			t.Fatalf("an untrusted co-signer satisfied the rule: %v", err)
+		}
+	})
+
+	// And the trusted set itself has to be two people. A build configured
+	// with one key listed twice would let one approver satisfy the rule
+	// without any check above noticing, because each signature would match a
+	// different entry.
+	t.Run("a trusted set that is one person listed twice", func(t *testing.T) {
+		duplicated := []ed25519.PublicKey{f.trusted[0], f.trusted[0]}
+		// A release properly approved by two people, offered to a build whose
+		// trusted set is misconfigured. It must be refused for the
+		// configuration, and the message has to say so: the same-approver
+		// check would also refuse a differently shaped attempt here, and an
+		// operator debugging their build needs to know which of the two they
+		// are looking at. Asserting the reason is also what makes this test
+		// exercise the check it is named for -- without it, deleting that
+		// check leaves the test green.
+		encoded := encode(t, f.approved(t, "1.0.0", "stable", 0, 1))
+		_, err := Decode(encoded, duplicated)
+		if !errors.Is(err, ErrUnverified) {
+			t.Fatalf("a duplicated trusted key satisfied the rule: %v", err)
+		}
+		if !strings.Contains(err.Error(), "not distinct") {
+			t.Errorf("refused with %q, which does not name the misconfigured trusted set", err)
+		}
+	})
+
+	t.Run("a trusted set with only one key", func(t *testing.T) {
+		encoded := encode(t, f.approved(t, "1.0.0", "stable", 0, 1))
+		if _, err := Decode(encoded, f.trusted[:1]); !errors.Is(err, ErrUnverified) {
+			t.Fatalf("a single-key build accepted a release: %v", err)
+		}
+	})
+
+	t.Run("no trusted keys at all", func(t *testing.T) {
+		encoded := encode(t, f.approved(t, "1.0.0", "stable", 0, 1))
+		if _, err := Decode(encoded, nil); !errors.Is(err, ErrUnverified) {
+			t.Fatalf("a build with no release keys accepted a release: %v", err)
+		}
+	})
+
+	// The positive control. Without it every assertion above would pass in a
+	// Decode that refused everything.
+	t.Run("two distinct approvers", func(t *testing.T) {
+		release, err := Decode(encode(t, f.approved(t, "1.0.0", "stable", 0, 1)), f.trusted)
+		if err != nil {
+			t.Fatalf("a properly approved release was refused: %v", err)
+		}
+		if len(release.Approvers) != MinimumApprovals {
+			t.Errorf("recorded %d approvers, want %d", len(release.Approvers), MinimumApprovals)
+		}
+		// Order of approval must not change the outcome: the approvals are
+		// not part of what is signed.
+		reversed, err := Decode(encode(t, f.approved(t, "1.0.0", "stable", 1, 0)), f.trusted)
+		if err != nil {
+			t.Fatalf("the same release approved in the other order was refused: %v", err)
+		}
+		if reversed.Digest != release.Digest {
+			t.Error("approval order changed the verified release")
+		}
+	})
+}
+
+// An approval is over a specific release. Moving a signature from one manifest
+// to another is the attack that a signature over "the release" rather than
+// over its contents would allow.
+func TestAnApprovalDoesNotTransferToAnotherRelease(t *testing.T) {
+	f := newFixture(t)
+	approved := f.approved(t, "1.0.0", "stable", 0, 1)
+
+	for name, mutate := range map[string]func(Manifest) Manifest{
+		"a different version": func(m Manifest) Manifest { m.Release = "2.0.0"; return m },
+		"a different channel": func(m Manifest) Manifest { m.Channel = "canary"; return m },
+		"a different artifact": func(m Manifest) Manifest {
+			m.ArtifactDigest = hex.EncodeToString(make([]byte, 32))
+			return m
+		},
+		"a different size": func(m Manifest) Manifest { m.ArtifactBytes++; return m },
+		"a different name": func(m Manifest) Manifest { m.ArtifactName = "Other.dmg"; return m },
+	} {
+		t.Run(name, func(t *testing.T) {
+			moved := mutate(approved)
+			encoded, err := json.Marshal(moved)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Decode(encoded, f.trusted); !errors.Is(err, ErrUnverified) {
+				t.Fatalf("approvals carried over to %s: %v", name, err)
+			}
+		})
 	}
 }

@@ -47,7 +47,22 @@ import (
 
 const (
 	// ManifestVersion is the frozen wire label for a release manifest.
-	ManifestVersion = "nomad-browser-release-v1"
+	//
+	// v2 replaces v1's single signature with a set of approvals. PROD-30 asks
+	// for a release approved through a documented two-person process, and a
+	// documented process is a promise: it holds exactly as long as everyone
+	// remembers it and nobody is in a hurry. Requiring two signatures from two
+	// distinct trusted keys makes it a control instead, enforced at the point
+	// of installation by the machine that would otherwise be defrauded.
+	//
+	// The break is free: no release key exists yet (EB-7) and nothing has ever
+	// shipped, so there is no v1 manifest anywhere to be compatible with. An
+	// unrecognised version is refused rather than downgraded to, so a v1
+	// manifest presented to this build fails closed.
+	ManifestVersion = "nomad-browser-release-v2"
+
+	// MinimumApprovals is the two in "two-person release process".
+	MinimumApprovals = 2
 	// signingLabel domain-separates the release signature from every other
 	// signature this project makes.
 	signingLabel = "nomad-browser-release-manifest-v1"
@@ -154,8 +169,15 @@ type Manifest struct {
 	// ArtifactDigest is the hex SHA-256 of the installer.
 	ArtifactDigest string `json:"artifact_digest"`
 	ArtifactBytes  int64  `json:"artifact_bytes"`
-	PublicKey      string `json:"public_key"`
-	Signature      string `json:"signature"`
+	// Approvals are the release approvers' signatures over everything above.
+	// Order is not significant and is not part of the signed message.
+	Approvals []Approval `json:"approvals"`
+}
+
+// Approval is one approver's signature over a release.
+type Approval struct {
+	PublicKey string `json:"public_key"`
+	Signature string `json:"signature"`
 }
 
 // Verified is a manifest that has been checked. It is the only way to reach a
@@ -165,6 +187,10 @@ type Verified struct {
 	Release  Version
 	Digest   [32]byte
 	Channel  string
+	// Approvers are the distinct trusted keys that approved this release, in
+	// the order the trusted set gave them. Recorded so a release decision can
+	// say who approved it rather than only that enough people did.
+	Approvers []string
 }
 
 // Decode parses and verifies a manifest against the release public key the
@@ -173,12 +199,13 @@ type Verified struct {
 // The trusted key is a parameter rather than a field in the manifest: a
 // manifest that names its own key authenticates nothing, because an attacker
 // substituting the whole manifest substitutes the key with it.
-func Decode(encoded []byte, trusted ed25519.PublicKey) (Verified, error) {
+func Decode(encoded []byte, trusted []ed25519.PublicKey) (Verified, error) {
 	if len(encoded) == 0 || int64(len(encoded)) > MaximumManifestBytes {
 		return Verified{}, fmt.Errorf("%w: manifest is empty or oversize", ErrUnverified)
 	}
-	if len(trusted) != ed25519.PublicKeySize {
-		return Verified{}, fmt.Errorf("%w: no trusted release key was supplied", ErrUnverified)
+	approvers, err := distinctApprovers(trusted)
+	if err != nil {
+		return Verified{}, err
 	}
 
 	var manifest Manifest
@@ -194,17 +221,6 @@ func Decode(encoded []byte, trusted ed25519.PublicKey) (Verified, error) {
 		return Verified{}, fmt.Errorf("%w: unrecognised manifest version %q, which is refused "+
 			"rather than downgraded to a version this build understands",
 			ErrUnverified, manifest.Version)
-	}
-
-	declaredKey, err := hex.DecodeString(manifest.PublicKey)
-	if err != nil || len(declaredKey) != ed25519.PublicKeySize {
-		return Verified{}, fmt.Errorf("%w: malformed public key", ErrUnverified)
-	}
-	// The manifest still carries the key, so a mismatch is reported as a
-	// wrong signer rather than as a bad signature. Trust comes from the
-	// parameter either way.
-	if subtle.ConstantTimeCompare(declaredKey, trusted) != 1 {
-		return Verified{}, fmt.Errorf("%w: signed by a key this build does not trust", ErrUnverified)
 	}
 
 	release, err := ParseVersion(manifest.Release)
@@ -226,45 +242,134 @@ func Decode(encoded []byte, trusted ed25519.PublicKey) (Verified, error) {
 		// not be able to name somewhere else.
 		return Verified{}, fmt.Errorf("%w: artifact name is a path", ErrUnverified)
 	}
-	signature, err := hex.DecodeString(manifest.Signature)
-	if err != nil || len(signature) != ed25519.SignatureSize {
-		return Verified{}, fmt.Errorf("%w: malformed signature", ErrUnverified)
+	if len(manifest.Approvals) > len(approvers) {
+		return Verified{}, fmt.Errorf("%w: %d approvals against %d trusted keys",
+			ErrUnverified, len(manifest.Approvals), len(approvers))
 	}
-	if !ed25519.Verify(trusted, signingMessage(manifest), signature) {
-		return Verified{}, fmt.Errorf("%w: signature does not verify", ErrUnverified)
+
+	message := signingMessage(manifest)
+	// Count distinct *approvers*, not signatures. Two signatures from one key
+	// are one person signing twice, which is the whole thing a two-person rule
+	// exists to prevent, and it is the cheapest way to defeat a scheme that
+	// counts signatures.
+	satisfied := map[string]bool{}
+	for _, approval := range manifest.Approvals {
+		declared, err := hex.DecodeString(approval.PublicKey)
+		if err != nil || len(declared) != ed25519.PublicKeySize {
+			return Verified{}, fmt.Errorf("%w: malformed approver key", ErrUnverified)
+		}
+		signature, err := hex.DecodeString(approval.Signature)
+		if err != nil || len(signature) != ed25519.SignatureSize {
+			return Verified{}, fmt.Errorf("%w: malformed approval signature", ErrUnverified)
+		}
+		index, trustedKey := matchTrusted(approvers, declared)
+		if index < 0 {
+			return Verified{}, fmt.Errorf("%w: approved by a key this build does not trust",
+				ErrUnverified)
+		}
+		if !ed25519.Verify(trustedKey, message, signature) {
+			return Verified{}, fmt.Errorf("%w: approval by %s does not verify",
+				ErrUnverified, approval.PublicKey[:16])
+		}
+		if satisfied[approval.PublicKey] {
+			return Verified{}, fmt.Errorf("%w: the same approver signed twice, which is one "+
+				"person, not two", ErrUnverified)
+		}
+		satisfied[approval.PublicKey] = true
+	}
+	if len(satisfied) < MinimumApprovals {
+		return Verified{}, fmt.Errorf("%w: %d distinct approvals, and a release needs %d",
+			ErrUnverified, len(satisfied), MinimumApprovals)
 	}
 
 	verified := Verified{Manifest: manifest, Release: release, Channel: manifest.Channel}
 	copy(verified.Digest[:], digest)
+	for _, key := range approvers {
+		encodedKey := hex.EncodeToString(key)
+		if satisfied[encodedKey] {
+			verified.Approvers = append(verified.Approvers, encodedKey)
+		}
+	}
 	return verified, nil
 }
 
-// Sign produces a manifest for a release. It is here so the format has exactly
-// one implementation and a test cannot accidentally sign something the
-// verifier would not have accepted.
-func Sign(manifest Manifest, key ed25519.PrivateKey) (Manifest, error) {
+// distinctApprovers checks the trusted set itself. A set that lists one key
+// twice would let one person satisfy a two-person rule without any of the
+// checks below noticing, because each signature would match a different entry.
+func distinctApprovers(trusted []ed25519.PublicKey) ([]ed25519.PublicKey, error) {
+	if len(trusted) < MinimumApprovals {
+		return nil, fmt.Errorf("%w: %d trusted release keys, and a two-person process needs %d",
+			ErrUnverified, len(trusted), MinimumApprovals)
+	}
+	seen := map[string]bool{}
+	for _, key := range trusted {
+		if len(key) != ed25519.PublicKeySize {
+			return nil, fmt.Errorf("%w: a trusted release key is malformed", ErrUnverified)
+		}
+		encoded := hex.EncodeToString(key)
+		if seen[encoded] {
+			return nil, fmt.Errorf("%w: the trusted release keys are not distinct, so one "+
+				"approver could satisfy the rule alone", ErrUnverified)
+		}
+		seen[encoded] = true
+	}
+	return trusted, nil
+}
+
+func matchTrusted(trusted []ed25519.PublicKey, declared []byte) (int, ed25519.PublicKey) {
+	for index, key := range trusted {
+		if subtle.ConstantTimeCompare(key, declared) == 1 {
+			return index, key
+		}
+	}
+	return -1, nil
+}
+
+// Prepare stamps a manifest with the current format version and clears any
+// approvals it arrived with. It is here so the format has exactly one
+// implementation and a test cannot accidentally build something the verifier
+// would not have accepted.
+//
+// It replaces a Sign that took the one release key. There is no such key any
+// more: a release is not signed by the project, it is approved by people, and
+// the function that turns a manifest into a signed one is Approve.
+func Prepare(manifest Manifest) Manifest {
+	manifest.Version = ManifestVersion
+	manifest.Approvals = nil
+	return manifest
+}
+
+// Approve adds one approver's signature to a manifest. Signing and approving
+// are separate calls because they are separate people: a function that took
+// two keys at once would be a two-person process one person can run.
+func Approve(manifest Manifest, key ed25519.PrivateKey) (Manifest, error) {
 	if len(key) != ed25519.PrivateKeySize {
-		return Manifest{}, errors.New("a release private key is required")
+		return Manifest{}, errors.New("an approver private key is required")
 	}
 	public, ok := key.Public().(ed25519.PublicKey)
 	if !ok {
-		return Manifest{}, errors.New("invalid release key")
+		return Manifest{}, errors.New("approver key does not carry a public half")
 	}
-	manifest.Version = ManifestVersion
-	manifest.PublicKey = hex.EncodeToString(public)
-	manifest.Signature = ""
-	manifest.Signature = hex.EncodeToString(ed25519.Sign(key, signingMessage(manifest)))
+	unsigned := manifest
+	unsigned.Approvals = nil
+	signature := ed25519.Sign(key, signingMessage(unsigned))
+	manifest.Approvals = append(append([]Approval(nil), manifest.Approvals...), Approval{
+		PublicKey: hex.EncodeToString(public),
+		Signature: hex.EncodeToString(signature),
+	})
 	return manifest, nil
 }
 
-// signingMessage covers every field except the signature itself, each length
-// prefixed so no two different manifests can produce one message.
+// signingMessage covers every field except the approvals, each length
+// prefixed so no two different manifests can produce one message. Approvals
+// are excluded so that every approver signs the same bytes regardless of who
+// signed first or how many have signed.
 func signingMessage(manifest Manifest) []byte {
 	h := sha256.New()
 	_, _ = h.Write([]byte(signingLabel))
 	for _, field := range []string{
 		manifest.Version, manifest.Release, manifest.Channel,
-		manifest.ArtifactName, manifest.ArtifactDigest, manifest.PublicKey,
+		manifest.ArtifactName, manifest.ArtifactDigest,
 	} {
 		var length [4]byte
 		binary.BigEndian.PutUint32(length[:], uint32(len(field)))
