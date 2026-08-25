@@ -1,6 +1,6 @@
 module github.com/Jtensetti/nomad-browser
 
-go 1.23
+go 1.25.0
 
 require (
 	github.com/Jtensetti/nomad-local-reconstruction v0.0.0

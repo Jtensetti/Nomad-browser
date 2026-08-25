@@ -1,4 +1,4 @@
 # Nomad browser integration snapshot lock v1
-github.com/Jtensetti/nomad-local-reconstruction 032f6f1ad3984e86d5812bd6ae07143d7a806a24 agent/nomad-v0.1
-github.com/Jtensetti/nomad-selection-firewall 0bc4acd475f10bbfe0388629a3d00810a6579328 agent/nomad-v0.1
-github.com/Jtensetti/nomad-semantic-basins a96d821 claude/nomad-production-ready-dxv4ql
+github.com/Jtensetti/nomad-local-reconstruction 3f87f8f claude/nomad-production-ready-dxv4ql
+github.com/Jtensetti/nomad-selection-firewall f45a5f9 claude/nomad-production-ready-dxv4ql
+github.com/Jtensetti/nomad-semantic-basins 29e2d97 claude/nomad-production-ready-dxv4ql
