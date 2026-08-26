@@ -33,6 +33,14 @@ jobs:
             gofmt -d .
             exit 1
           fi
+      - name: Check the renderer URL decisions against a second implementation
+        run: |
+          # PROD-16 asks for parser-differential evidence at the renderer
+          # boundary. The decision corpus is that evidence only if something
+          # other than the encoder that wrote it reads it. Run standalone here
+          # as well as from the Go test, so it is exercised even if the Go side
+          # is skipped for want of a python3 on the runner.
+          python3 conformance/reference/crosscheck_egress.py egress/testdata/url-decisions.json
       - run: go test -race ./...
       - run: go vet ./...
       - name: Test every pinned component snapshot

@@ -1,9 +1,12 @@
 package egress
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -148,5 +151,96 @@ func TestEveryFrozenDecisionSaysWhyItMatters(t *testing.T) {
 			t.Errorf("%q appears twice; one of the two entries is unreachable", decision.URL)
 		}
 		seen[decision.URL] = true
+	}
+}
+
+// PROD-16 asks for parser-differential evidence at the renderer boundary. The
+// corpus is that evidence only if something other than the encoder that wrote
+// it reads it: a corpus checked by its own producer is a self-consistency check
+// wearing an interoperability claim.
+//
+// conformance/reference/nomadegress.py decides the same URLs with Python's own
+// URL parser and path handling, sharing no code with this package. It is run
+// here rather than only in CI, so a change to the policy that the corpus does
+// not cover fails in the same command that made it.
+//
+// On its first run it disagreed twice, and both disagreements were bugs in the
+// second implementation rather than in this one -- which is what makes them
+// worth keeping: they are the mistakes a third implementer makes. It denied
+// "nomad:/" for having an empty segment, and it *allowed*
+// "data:text/plain;base64;charset=x,y" by treating the text before the first
+// semicolon as the media type. The second is a prefix match, and a prefix match
+// is exactly how a scriptable type gets past an allowlist.
+func TestTheDecisionCorpusAgreesWithASecondImplementation(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 is unavailable, so the second implementation cannot be run; " +
+			"an environment limit and not a pass")
+	}
+	script := filepath.Join("..", "conformance", "reference", "crosscheck_egress.py")
+	if _, err := os.Stat(script); err != nil {
+		t.Fatalf("the second implementation is missing: %v", err)
+	}
+	corpus := filepath.Join("testdata", "url-decisions.json")
+
+	command := exec.Command(python, script, corpus)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("the second implementation disagrees with the published decisions:\n%s",
+			output)
+	}
+	if !bytes.Contains(output, []byte("cases agree")) {
+		t.Fatalf("the second implementation did not report a verdict:\n%s", output)
+	}
+	t.Logf("%s", bytes.TrimSpace(output))
+}
+
+// The cross-check is worth nothing if it would pass on a corpus the second
+// implementation never read. This gives it a corpus with one decision inverted
+// and requires it to fail.
+func TestTheCrossCheckNoticesAChangedDecision(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 is unavailable; an environment limit and not a pass")
+	}
+	script := filepath.Join("..", "conformance", "reference", "crosscheck_egress.py")
+	original, err := os.ReadFile(filepath.Join("testdata", "url-decisions.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var corpus struct {
+		Version     string `json:"version"`
+		Description string `json:"description"`
+		Cases       []struct {
+			URL   string `json:"url"`
+			Allow bool   `json:"allow"`
+			Why   string `json:"why"`
+		} `json:"cases"`
+	}
+	if err := json.Unmarshal(original, &corpus); err != nil {
+		t.Fatal(err)
+	}
+	if len(corpus.Cases) == 0 {
+		t.Fatal("the corpus is empty")
+	}
+	corpus.Cases[0].Allow = !corpus.Cases[0].Allow
+
+	altered, err := json.Marshal(corpus)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "altered.json")
+	if err := os.WriteFile(path, altered, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	command := exec.Command(python, script, path)
+	output, _ := command.CombinedOutput()
+	if command.ProcessState.ExitCode() == 0 {
+		t.Fatalf("the cross-check passed on a corpus with an inverted decision, so it "+
+			"would pass on anything:\n%s", output)
+	}
+	if !bytes.Contains(output, []byte(corpus.Cases[0].URL)) {
+		t.Errorf("the failure does not name the URL that disagreed:\n%s", output)
 	}
 }
