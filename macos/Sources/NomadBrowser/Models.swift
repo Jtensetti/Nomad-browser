@@ -17,13 +17,40 @@ struct SignedEnvelope: Codable, Sendable {
     let contentHash: String
     let publisherKey: String
     let signature: String
+    let identity: SiteIdentityBundle?
+
+    init(
+        version: Int,
+        payload: String,
+        contentHash: String,
+        publisherKey: String,
+        signature: String,
+        identity: SiteIdentityBundle? = nil
+    ) {
+        self.version = version
+        self.payload = payload
+        self.contentHash = contentHash
+        self.publisherKey = publisherKey
+        self.signature = signature
+        self.identity = identity
+    }
+}
+
+enum PublisherIdentityState: String, Codable, Sendable, Hashable {
+    case verified
+    case unanchored
+    case unknown
+    case invalid
 }
 
 struct VerifiedDocument: Identifiable, Sendable, Hashable {
     let id: String
     let document: NomadDocument
     let publisherFingerprint: String
-    let trustedPublisher: Bool
+    let publisherIdentity: PublisherIdentityState
+    let siteID: String?
+
+    var trustedPublisher: Bool { publisherIdentity == .verified }
 }
 
 enum ObjectVerificationError: LocalizedError, Equatable {
@@ -32,7 +59,6 @@ enum ObjectVerificationError: LocalizedError, Equatable {
     case objectTooLarge
     case commitmentMismatch
     case invalidSignature
-    case untrustedPublisher
     case unsupportedMediaType
     case invalidDocument
 
@@ -43,7 +69,6 @@ enum ObjectVerificationError: LocalizedError, Equatable {
         case .objectTooLarge: return "Objektet överskrider säkerhetsgränsen."
         case .commitmentMismatch: return "Objektets SHA-256-åtagande stämmer inte."
         case .invalidSignature: return "Objektets Ed25519-signatur är ogiltig."
-        case .untrustedPublisher: return "Objektets publiceringsnyckel är inte betrodd av denna klient."
         case .unsupportedMediaType: return "Objektets medietyp stöds inte av den säkra renderaren."
         case .invalidDocument: return "Dokumentets innehåll är ogiltigt."
         }
@@ -59,17 +84,24 @@ enum ObjectVerifier {
     static let maximumPublishedAtCharacters = 64
     static let maximumTags = 64
     static let objectDomain = Data("nomad-object-v1".utf8)
-    static let trustedDemoPublisher = Data(base64Encoded: "SsX0q+oi8C1+v0yTSrltfxYkztmjrdJNE/gN7XN0jEk=")!
-    static let trustedPublisherKeys: Set<Data> = [trustedDemoPublisher]
 
+    // Object verification establishes integrity only. Publisher identity is a
+    // separate SiteID claim and must never be inferred from an embedded key or
+    // a build-time allowlist. A self-consistent SiteID bundle is still not a
+    // current identity anchor: without monotonic local state, an attacker could
+    // replay an older valid chain. Such evidence is therefore UNANCHORED until
+    // the materializer supplies a persisted, rollback-resistant accepted head.
     static func verify(_ envelope: SignedEnvelope) throws -> VerifiedDocument {
         guard envelope.version == 1 else {
             throw ObjectVerificationError.unsupportedVersion
         }
         guard
             let payload = Data(base64Encoded: envelope.payload),
+            payload.base64EncodedString() == envelope.payload,
             let publisherKey = Data(base64Encoded: envelope.publisherKey),
+            publisherKey.base64EncodedString() == envelope.publisherKey,
             let signature = Data(base64Encoded: envelope.signature),
+            signature.base64EncodedString() == envelope.signature,
             payload.count <= maximumPayloadBytes,
             publisherKey.count == 32,
             signature.count == 64
@@ -78,7 +110,7 @@ enum ObjectVerifier {
         }
 
         let digest = Data(SHA256.hash(data: payload))
-        guard digest.hexString == envelope.contentHash.lowercased() else {
+        guard digest.hexString == envelope.contentHash, envelope.contentHash == envelope.contentHash.lowercased() else {
             throw ObjectVerificationError.commitmentMismatch
         }
         var signingMessage = objectDomain
@@ -92,10 +124,12 @@ enum ObjectVerifier {
         guard key.isValidSignature(signature, for: signingMessage) else {
             throw ObjectVerificationError.invalidSignature
         }
-        guard trustedPublisherKeys.contains(publisherKey) else {
-            throw ObjectVerificationError.untrustedPublisher
-        }
 
+        do {
+            try StrictJSON.validateDocumentPayload(payload)
+        } catch {
+            throw ObjectVerificationError.invalidDocument
+        }
         let document: NomadDocument
         do {
             document = try JSONDecoder().decode(NomadDocument.self, from: payload)
@@ -118,11 +152,29 @@ enum ObjectVerifier {
             throw ObjectVerificationError.invalidDocument
         }
 
+        var identityState = PublisherIdentityState.unknown
+        var siteID: String?
+        if let identity = envelope.identity {
+            do {
+                siteID = try SiteIdentityVerifier.resolve(
+                    bundle: identity,
+                    object: payload,
+                    objectPublisherKey: publisherKey,
+                    objectSignature: signature
+                )
+                identityState = .unanchored
+            } catch {
+                identityState = .invalid
+                siteID = nil
+            }
+        }
+
         return VerifiedDocument(
             id: digest.hexString,
             document: document,
             publisherFingerprint: String(Data(SHA256.hash(data: publisherKey)).hexString.prefix(16)),
-            trustedPublisher: true
+            publisherIdentity: identityState,
+            siteID: siteID
         )
     }
 }

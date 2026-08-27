@@ -8,13 +8,15 @@ private func builtInEnvelopes() throws -> [SignedEnvelope] {
     return try JSONDecoder().decode([SignedEnvelope].self, from: Data(contentsOf: url))
 }
 
-@Test("Every bundled object is exactly committed and Ed25519 verified")
+@Test("Every bundled object is exactly committed and Ed25519 verified without implying publisher identity")
 func bundledObjectsVerify() throws {
     let envelopes = try builtInEnvelopes()
     #expect(envelopes.count == 3)
     for envelope in envelopes {
         let verified = try ObjectVerifier.verify(envelope)
-        #expect(verified.trustedPublisher)
+        #expect(verified.publisherIdentity == .unknown)
+        #expect(!verified.trustedPublisher)
+        #expect(verified.siteID == nil)
         #expect(verified.id == envelope.contentHash)
     }
 }
@@ -34,8 +36,8 @@ func payloadMutationFails() throws {
     }
 }
 
-@Test("A valid signature from an untrusted publisher fails closed")
-func untrustedPublisherFails() throws {
+@Test("A valid object signature from an unknown publisher proves integrity but not identity")
+func unknownPublisherIsNotPromotedToTrusted() throws {
     let original = try #require(builtInEnvelopes().first)
     let payload = try #require(Data(base64Encoded: original.payload))
     let digest = Data(SHA256.hash(data: payload))
@@ -50,8 +52,39 @@ func untrustedPublisherFails() throws {
         publisherKey: privateKey.publicKey.rawRepresentation.base64EncodedString(),
         signature: signature.base64EncodedString()
     )
-    #expect(throws: (any Error).self) {
-        try ObjectVerifier.verify(envelope)
+    let verified = try ObjectVerifier.verify(envelope)
+    #expect(verified.publisherIdentity == .unknown)
+    #expect(!verified.trustedPublisher)
+    #expect(verified.publisherFingerprint == String(Data(SHA256.hash(data: privateKey.publicKey.rawRepresentation)).hexString.prefix(16)))
+}
+
+@Test("Non-canonical base64 encodings are refused")
+func nonCanonicalBase64Fails() throws {
+    let original = try #require(builtInEnvelopes().first)
+    let mutated = SignedEnvelope(
+        version: original.version,
+        payload: "\n" + original.payload,
+        contentHash: original.contentHash,
+        publisherKey: original.publisherKey,
+        signature: original.signature
+    )
+    #expect(throws: ObjectVerificationError.malformedEncoding) {
+        try ObjectVerifier.verify(mutated)
+    }
+}
+
+@Test("Content hashes must use the canonical lowercase spelling")
+func nonCanonicalContentHashFails() throws {
+    let original = try #require(builtInEnvelopes().first)
+    let mutated = SignedEnvelope(
+        version: original.version,
+        payload: original.payload,
+        contentHash: original.contentHash.uppercased(),
+        publisherKey: original.publisherKey,
+        signature: original.signature
+    )
+    #expect(throws: ObjectVerificationError.commitmentMismatch) {
+        try ObjectVerifier.verify(mutated)
     }
 }
 

@@ -109,7 +109,7 @@ struct ContentView: View {
                     VStack(spacing: 8) {
                         Text("Ingen adressrad. Ingen DNS. Ingen vanlig webb.")
                             .font(.headline)
-                        Text("Klienten läser endast Ed25519-signerade objekt som redan finns i den lokala Nomad-cachen.")
+                        Text("Klienten läser endast kryptografiskt verifierade objekt som redan finns i den lokala Nomad-cachen. Objektintegritet och SiteID-status visas som separata påståenden.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
@@ -192,6 +192,7 @@ struct ContentView: View {
                         .textSelection(.enabled)
                     HStack {
                         Text(verified.document.publisherName)
+                        Text("• självuppgivet namn")
                         Text("•")
                         Text(verified.document.publishedAt)
                     }
@@ -205,19 +206,50 @@ struct ContentView: View {
         }
     }
 
+    @ViewBuilder
     private func verificationLine(_ verified: VerifiedDocument) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: verified.trustedPublisher ? "checkmark.seal.fill" : "checkmark.shield.fill")
-            Text(verified.trustedPublisher ? "Signerad och lokalt betrodd" : "Signerad; identiteten är inte betrodd")
-            Text("· \(verified.publisherFingerprint)")
+        switch verified.publisherIdentity {
+        case .verified:
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.seal.fill")
+                Text("Objekt verifierat · aktuell SiteID-head verifierad")
+                if let siteID = verified.siteID {
+                    Text("· \(String(siteID.prefix(12)))…")
+                }
+            }
+            .font(.caption2)
+            .foregroundStyle(.green)
+        case .unanchored:
+            HStack(spacing: 6) {
+                Image(systemName: "link.badge.plus")
+                Text("Objekt verifierat · SiteID-kedja giltig men ej rollback-förankrad")
+                if let siteID = verified.siteID {
+                    Text("· \(String(siteID.prefix(12)))…")
+                }
+            }
+            .font(.caption2)
+            .foregroundStyle(.orange)
+        case .unknown:
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.shield.fill")
+                Text("Objekt verifierat · ingen SiteID-bevisning")
+                Text("· nyckel \(verified.publisherFingerprint)")
+            }
+            .font(.caption2)
+            .foregroundStyle(.orange)
+        case .invalid:
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.shield.fill")
+                Text("Objekt verifierat · SiteID-bevisning ogiltig")
+            }
+            .font(.caption2)
+            .foregroundStyle(.red)
         }
-        .font(.caption2)
-        .foregroundStyle(verified.trustedPublisher ? .green : .orange)
     }
 
     private var statusFooter: some View {
         HStack {
-            Text("\(store.documents.count) verifierade objekt")
+            Text("\(store.documents.count) integritetsverifierade objekt")
             if store.rejectedObjectCount > 0 {
                 Text("· \(store.rejectedObjectCount) avvisade")
                     .foregroundStyle(.orange)

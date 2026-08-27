@@ -1,6 +1,14 @@
 name: macOS verification build
 
 on:
+  push:
+    paths:
+      - "macos/**"
+      - ".github/workflows/macos-dmg.yml"
+  pull_request:
+    paths:
+      - "macos/**"
+      - ".github/workflows/macos-dmg.yml"
   workflow_dispatch:
 
 permissions:
@@ -12,6 +20,9 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
+
+      - name: Run exact-head Swift test suite
+        run: swift test --package-path macos
 
       - name: Build, sandbox, ad-hoc sign and verify universal DMG
         env:
