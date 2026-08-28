@@ -54,10 +54,11 @@ jobs:
             echo "== $module =="
             (cd "$module" && go build ./... && go vet ./... && go test -race -count=1 ./...)
           done
+      - name: Verify the vulnerability gate still fails closed
+        run: ./scripts/test-scan-vulnerabilities.sh
       - name: Scan dependencies for reachable vulnerabilities
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
-          "$(go env GOPATH)/bin/govulncheck" ./...
+          ./scripts/scan-vulnerabilities.sh
       - name: Verify the build is deterministic across source paths
         run: ./scripts/check-reproducible.sh
       - name: Generate SBOM
