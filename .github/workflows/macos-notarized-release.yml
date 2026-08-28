@@ -27,7 +27,7 @@ jobs:
     timeout-minutes: 60
     environment: apple-release
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Validate release input
         env:
@@ -51,7 +51,7 @@ jobs:
         run: bash macos/scripts/build_notarized_dmg.sh
 
       - name: Upload immutable notarization evidence
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: Nomad-Browser-notarized-${{ github.sha }}-${{ inputs.version }}
           path: |
