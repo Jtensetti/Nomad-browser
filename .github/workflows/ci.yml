@@ -41,7 +41,21 @@ jobs:
           # as well as from the Go test, so it is exercised even if the Go side
           # is skipped for want of a python3 on the runner.
           python3 conformance/reference/crosscheck_egress.py egress/testdata/url-decisions.json
-      - run: go test -race ./...
+      - name: Install the tools the capability gates need
+        run: |
+          # The runtime-boundary gate traces the release binaries with strace,
+          # and the vendored egress capture needs tcpdump. Installing them here
+          # states the requirement in the workflow: a runner image that drops
+          # one fails this step instead of quietly turning a gate into a skip.
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq strace tcpdump
+      - name: Run the tests, requiring the capability gates to actually run
+        env:
+          # A skip is green, so a gate that stops running for an environmental
+          # reason reports what a gate that passes reports. This says the
+          # capability is present here, so its absence fails.
+          NOMAD_REQUIRE_CAPABILITY_GATES: '1'
+        run: go test -race ./...
       - run: go vet ./...
       - name: Static analysis, failing closed
         run: |
@@ -58,7 +72,8 @@ jobs:
           # pinned, not that they work.
           for module in components/*/; do
             echo "== $module =="
-            (cd "$module" && go build ./... && go vet ./... && go test -race -count=1 ./...)
+            (cd "$module" && go build ./... && go vet ./... && \
+              NOMAD_REQUIRE_CAPABILITY_GATES=1 go test -race -count=1 ./...)
           done
       - name: Verify the Linux client cannot reach the network
         run: |

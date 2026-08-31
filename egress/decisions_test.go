@@ -171,12 +171,31 @@ func TestEveryFrozenDecisionSaysWhyItMatters(t *testing.T) {
 // "data:text/plain;base64;charset=x,y" by treating the text before the first
 // semicolon as the media type. The second is a prefix match, and a prefix match
 // is exactly how a scriptable type gets past an allowlist.
-func TestTheDecisionCorpusAgreesWithASecondImplementation(t *testing.T) {
+// requireCapabilityGates reports whether this environment has declared that the
+// gates depending on an external tool can run here. CI sets it, and installs
+// what they need, so a gate that stops running is a failure there rather than a
+// skip that reports what a pass reports.
+func requireCapabilityGates() bool {
+	return os.Getenv("NOMAD_REQUIRE_CAPABILITY_GATES") == "1"
+}
+
+func pythonForTheSecondImplementation(t *testing.T) string {
+	t.Helper()
 	python, err := exec.LookPath("python3")
-	if err != nil {
-		t.Skip("python3 is unavailable, so the second implementation cannot be run; " +
-			"an environment limit and not a pass")
+	if err == nil {
+		return python
 	}
+	if requireCapabilityGates() {
+		t.Fatal("python3 is unavailable, and NOMAD_REQUIRE_CAPABILITY_GATES=1 says this " +
+			"environment is supposed to run the second implementation")
+	}
+	t.Skip("python3 is unavailable, so the second implementation cannot be run; " +
+		"an environment limit and not a pass")
+	return ""
+}
+
+func TestTheDecisionCorpusAgreesWithASecondImplementation(t *testing.T) {
+	python := pythonForTheSecondImplementation(t)
 	script := filepath.Join("..", "conformance", "reference", "crosscheck_egress.py")
 	if _, err := os.Stat(script); err != nil {
 		t.Fatalf("the second implementation is missing: %v", err)
@@ -199,10 +218,7 @@ func TestTheDecisionCorpusAgreesWithASecondImplementation(t *testing.T) {
 // implementation never read. This gives it a corpus with one decision inverted
 // and requires it to fail.
 func TestTheCrossCheckNoticesAChangedDecision(t *testing.T) {
-	python, err := exec.LookPath("python3")
-	if err != nil {
-		t.Skip("python3 is unavailable; an environment limit and not a pass")
-	}
+	python := pythonForTheSecondImplementation(t)
 	script := filepath.Join("..", "conformance", "reference", "crosscheck_egress.py")
 	original, err := os.ReadFile(filepath.Join("testdata", "url-decisions.json"))
 	if err != nil {

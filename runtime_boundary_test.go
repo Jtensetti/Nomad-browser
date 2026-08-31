@@ -57,14 +57,31 @@ var networkSyscalls = []string{
 // control is why that was caught rather than recorded as evidence.
 var syscallLine = regexp.MustCompile(`^(?:\[pid\s+(?:\d+)\]\s+|\d+\s+)?(\w+)\(`)
 
+// requireCapabilityGates reports whether this environment has declared that
+// the gates depending on an external tool or a kernel capability can run here.
+//
+// CI sets it. A skip is green, so a gate that quietly stopped running -- an
+// image that no longer ships the tool, a capability an OS release started
+// restricting -- is indistinguishable from a gate that passed. Where the
+// environment has promised the capability, its absence is a failure.
+func requireCapabilityGates() bool {
+	return os.Getenv("NOMAD_REQUIRE_CAPABILITY_GATES") == "1"
+}
+
 func traceAvailable(t *testing.T) string {
 	t.Helper()
 	strace, err := exec.LookPath("strace")
-	if err != nil {
-		t.Skip("strace is unavailable, so the runtime boundary cannot be observed; " +
-			"an environment limit and not a pass")
+	if err == nil {
+		return strace
 	}
-	return strace
+	if requireCapabilityGates() {
+		t.Fatal("strace is unavailable, and NOMAD_REQUIRE_CAPABILITY_GATES=1 says this " +
+			"environment is supposed to run this gate. Skipping here would report what " +
+			"passing reports.")
+	}
+	t.Skip("strace is unavailable, so the runtime boundary cannot be observed; " +
+		"an environment limit and not a pass")
+	return ""
 }
 
 // traceNetworkCalls runs a command under strace and returns the network
