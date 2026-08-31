@@ -15,11 +15,38 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-if ! unshare --user --map-root-user --net true 2>/dev/null; then
-  echo "verify-networkless: unprivileged network namespaces are unavailable here" >&2
-  echo "verify-networkless: this gate cannot run, which is not the same as passing" >&2
-  exit 2
+# Two ways to get an empty network namespace. They differ only in how it is
+# obtained, never in what it proves: either way the process lands in a
+# namespace whose only interface is a down loopback.
+#
+# Unprivileged user namespaces are restricted on Ubuntu 24.04 by an AppArmor
+# rule, which is why GitHub's runners need the second one.
+kind="${NOMAD_NETNS_KIND:-}"
+if [ -z "$kind" ]; then
+  if unshare --user --map-root-user --net true 2>/dev/null; then
+    kind=userns
+  elif sudo -n unshare --net true 2>/dev/null; then
+    kind=sudo
+  fi
 fi
+
+in_namespace() {
+  case "$kind" in
+    userns) unshare --user --map-root-user --net "$@" ;;
+    sudo) sudo -n unshare --net "$@" ;;
+    *) echo "verify-networkless: no namespace mechanism selected" >&2; return 2 ;;
+  esac
+}
+
+case "$kind" in
+  userns|sudo) echo "verify-networkless: using the $kind network namespace mechanism" ;;
+  *)
+    echo "verify-networkless: no way to obtain an empty network namespace here:" >&2
+    echo "verify-networkless: unprivileged user namespaces are unavailable and" >&2
+    echo "verify-networkless: passwordless sudo is not available either." >&2
+    echo "verify-networkless: this gate cannot run, which is not the same as passing" >&2
+    exit 2 ;;
+esac
 
 echo "== building the client =="
 go build -o "$work/nomad-browser" "$root/cmd/nomad-browser"
@@ -83,8 +110,11 @@ failure inside the namespace would prove nothing about the namespace" >&2
      exit 1 ;;
 esac
 
+# Under the sudo mechanism the inside probe runs as root while the control ran
+# as an ordinary user. That asymmetry only strengthens the result: the more
+# privileged process is the one that cannot reach the listener.
 echo "== the same probe must fail inside the namespace =="
-inside="$(unshare --user --map-root-user --net python3 -c "$probe" "$port")"
+inside="$(in_namespace python3 -c "$probe" "$port")"
 echo "  $inside"
 case "$inside" in
   UNREACHABLE*) ;;
@@ -93,7 +123,7 @@ case "$inside" in
 esac
 
 echo "== the client must still work inside that namespace =="
-output="$(printf 'list\nsearch nomad\nquit\n' | unshare --user --map-root-user --net \
+output="$(printf 'list\nsearch nomad\nquit\n' | in_namespace \
   "$work/nomad-browser" -objects "$work/objects" \
   -trust 'SsX0q+oi8C1+v0yTSrltfxYkztmjrdJNE/gN7XN0jEk=')"
 echo "$output" | sed 's/^/  /'

@@ -48,9 +48,17 @@ requires a probe to reach it from outside the namespace, and only then requires
 the same probe to fail inside. Then it runs the client in that namespace and
 requires it to load and rank the corpus.
 
-The gate exits 2, distinctly from both pass and fail, when unprivileged network
-namespaces are unavailable. A check that cannot run must not report what a
-check that passed reports.
+The namespace is obtained one of two ways: an unprivileged user namespace, or
+`sudo unshare --net` where that is restricted, as it is on Ubuntu 24.04 and so
+on GitHub's runners. The two differ only in how the namespace is obtained, not
+in what it proves. Under the second, the probe inside the namespace runs as
+root while the control ran as an ordinary user, which strengthens the result
+rather than weakening it: the more privileged process is the one that cannot
+reach the listener.
+
+If neither mechanism is available the gate exits 2, distinctly from both pass
+and fail. A check that cannot run must not report what a check that passed
+reports.
 
 ## Running it
 
