@@ -54,6 +54,13 @@ jobs:
             echo "== $module =="
             (cd "$module" && go build ./... && go vet ./... && go test -race -count=1 ./...)
           done
+      - name: Verify the Linux client cannot reach the network
+        run: |
+          # Any non-zero exit fails this step, exit 2 included. The script uses
+          # 2 for "this gate could not run", which on a developer machine is
+          # different from a failure but in CI is not: a release gate that
+          # silently did not run is the failure.
+          ./scripts/verify-networkless.sh
       - name: Verify the vulnerability gate still fails closed
         run: ./scripts/test-scan-vulnerabilities.sh
       - name: Scan dependencies for reachable vulnerabilities

@@ -127,3 +127,39 @@ func TestUpdateVerifierHasNoNetworkOrProcessCapability(t *testing.T) {
 		}
 	}
 }
+
+// The Linux client's claim is that it cannot reach the network. The launcher
+// in linux/ enforces that with a network namespace, but the strongest form of
+// the claim is that there is nothing in the binary to enforce it against: no
+// networking package is linked into it at all.
+//
+// go list -deps is the whole transitive graph, so this covers packages pulled
+// in indirectly as well as those imported here.
+func TestTheLinuxClientLinksNoNetworkingPackage(t *testing.T) {
+	deps := dependencies(t, "./cmd/nomad-browser")
+	for _, forbidden := range []string{
+		"net",
+		"net/http",
+		"net/url",
+		"crypto/tls",
+		"os/exec",
+	} {
+		if deps[forbidden] {
+			t.Fatalf("the Linux client links %s; a reader of local objects has "+
+				"no use for it, and its presence makes the networkless claim "+
+				"depend on the program's behaviour rather than on its contents",
+				forbidden)
+		}
+	}
+}
+
+// The private selection side must not acquire a socket-capable dependency
+// either, since it is the package that handles query text.
+func TestTheSearchIndexLinksNoNetworkingPackage(t *testing.T) {
+	deps := dependencies(t, "./search")
+	for _, forbidden := range []string{"net", "net/http", "crypto/tls"} {
+		if deps[forbidden] {
+			t.Fatalf("search links %s, so the package holding query text can open a socket", forbidden)
+		}
+	}
+}

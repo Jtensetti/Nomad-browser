@@ -2,13 +2,22 @@
 
 Browser-engine-independent client contracts for Nomad v0.1.
 
-The `macos/` directory also contains a native SwiftUI alpha client. It has no
-address field or general-purpose web renderer. It searches only verified local
-Nomad objects, renders signed plain text, runs inside the macOS App Sandbox and
-is built as a universal downloadable DMG by GitHub Actions.
+Two native clients ship from this repository, over the same portable Go core.
 
-The native client's explicit, evidence-based release boundary is documented in
-[`macos/SECURITY.md`](macos/SECURITY.md).
+`macos/` holds a SwiftUI alpha. It has no address field or general-purpose web
+renderer. It searches only verified local Nomad objects, renders signed plain
+text, runs inside the macOS App Sandbox and is built as a universal
+downloadable DMG by GitHub Actions. Its explicit, evidence-based release
+boundary is documented in [`macos/SECURITY.md`](macos/SECURITY.md).
+
+`cmd/nomad-browser` is the Linux client, documented in
+[`linux/README.md`](linux/README.md). It does the same job through the Go
+packages directly, and it is where the networkless claim is strongest: its
+dependency graph contains no networking package at all, and it runs in a
+network namespace with no interfaces, so the claim is enforced by the kernel
+rather than by the program. `scripts/verify-networkless.sh` proves the
+namespace is genuinely empty using a probe that must succeed outside it, and
+runs in CI.
 
 ## Implemented
 
@@ -30,10 +39,45 @@ The native client's explicit, evidence-based release boundary is documented in
   component snapshots.
 - periodic discovery of newly materialized `.nomadobject` files from the local
   sandbox cache, on a public five-second cadence that never depends on a query
-  or selected result; malformed entries are isolated and rejected per file.
+  or selected result; malformed entries are isolated and rejected per file;
+- an `objectstore` package that verifies signed objects in Go, independently of
+  the Swift implementation of the same boundary, checked against the corpus
+  both clients share;
+- a `search` index that embeds and tokenizes each object when it is added, so
+  one search costs exactly one embedding call however large the corpus is, and
+  that names the embedder behind every ranking.
 
 MIME bindings live inside the signed canonical bundle bytes. A network-supplied
 header cannot silently reinterpret an object as executable content.
+
+## The semantic side, and what it costs
+
+Ranking runs through `basin.Embedder`. The only implementation in the tree is
+`basin.LexicalHashEmbedder`, which its own documentation calls a lexical
+baseline and not a semantic model, and every result names the embedder that
+produced it so a lexical ranking is never presented as a semantic one. A real
+model attaches either in-process through that interface or, keeping this
+process socket-free, through the sealed loopback service in
+`components/nomad-semantic-basins/basin/loopback`. Nothing in the Nomad tree
+builds that model; see `EXTERNAL_BLOCKERS.md` in nomad-protocol.
+
+Inference latency is a privacy property here, not just a responsiveness one.
+How long an embedder takes depends on the query, the object and how many
+candidates matched, all of which are private. If that latency could reach an
+externally observable event it would modulate one with private state, which is
+the single thing Nomad must never do. It cannot: the packages that hold query
+text sit on the private side of the Selection Firewall and cannot reach the
+emission planner, and the fabric emits on a fixed cadence regardless. A slow
+model costs the reader a wait and costs the wire nothing.
+
+What that leaves is ordinary cost, and the index is built so a model can be
+slow without being felt. Each object is embedded and tokenized when it is
+added, not when a query arrives, because objects materialize rarely and queries
+are interactive. One search is therefore one embedding call and a set of
+lookups, however large the corpus --
+`TestASearchCostsExactlyOneEmbeddingCall` pins that. Every embedding call is
+bounded by a required budget, and an embedder that hangs is abandoned at it
+rather than waited on.
 
 ## Engine integration contract
 
