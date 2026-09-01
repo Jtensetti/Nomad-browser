@@ -11,4 +11,4 @@
 # as nomad-testnet's has since its own v2.
 github.com/Jtensetti/nomad-local-reconstruction 71549da claude/nomad-production-ready-dxv4ql 89d07dd05e4a1fb6f36e98d6222af87f6fe7eea7a73de2b5675fbf5da505e4c7
 github.com/Jtensetti/nomad-selection-firewall f45a5f9 claude/nomad-production-ready-dxv4ql 042f7ebd075fa1f6684598af3e23e739898bfc750c697d7744489e1753fc6d35
-github.com/Jtensetti/nomad-semantic-basins e9b299e claude/nomad-production-ready-dxv4ql 81cb774ab26bc72aa5340a7c7b22ae2c4c4e8d01a246d4fa419c410c022b4e9e
+github.com/Jtensetti/nomad-semantic-basins b0b917a claude/nomad-production-ready-dxv4ql a94c21ad9ab25b9305063a75f241fc491791bdcac16fef0278a4a2c12b02da29
