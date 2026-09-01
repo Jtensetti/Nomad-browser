@@ -73,11 +73,17 @@ func run(args []string, input io.Reader, output io.Writer) error {
 		return err
 	}
 
-	index, err := search.New(search.Config{
-		Embedder:   basin.LexicalHashEmbedder{Dims: opts.dimensions},
-		Quantizer:  basin.Quantizer{Seed: localRankingSeed()},
-		Provenance: search.ProvenanceLexical,
-		Budget:     opts.budget,
+	// One index per fingerprint, so that attaching a semantic model later adds
+	// an index rather than overwriting this one. The baseline gets a
+	// fingerprint like any model would: an index without one is an index whose
+	// vectors could be compared with something incomparable.
+	indexes := search.NewManager(opts.directory)
+	index, err := indexes.Open(search.Config{
+		Embedder:    basin.LexicalHashEmbedder{Dims: opts.dimensions},
+		Quantizer:   basin.Quantizer{Seed: localRankingSeed()},
+		Provenance:  search.ProvenanceLexical,
+		Fingerprint: search.LexicalFingerprint(opts.dimensions),
+		Budget:      opts.budget,
 	})
 	if err != nil {
 		return err
@@ -133,6 +139,8 @@ func (s *session) banner(rejected, indexed, unindexed int) {
 	if unindexed > 0 {
 		s.printf("%d verified objects could not be indexed and are not searchable\n", unindexed)
 	}
+	s.printf("ranking: %s. There is no semantic model in this build; a lexical\n"+
+		"ranking is a word match, not an understanding of meaning.\n", s.index.Provenance())
 	s.printf("commands: list, search <text>, read <id>, help, quit\n")
 }
 

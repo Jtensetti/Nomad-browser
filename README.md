@@ -45,21 +45,40 @@ runs in CI.
   both clients share;
 - a `search` index that embeds and tokenizes each object when it is added, so
   one search costs exactly one embedding call however large the corpus is, and
-  that names the embedder behind every ranking.
+  that names the embedder behind every ranking;
+- one index per model fingerprint, so two models' vectors are never compared
+  with each other and changing model does not destroy the previous index.
 
 MIME bindings live inside the signed canonical bundle bytes. A network-supplied
 header cannot silently reinterpret an object as executable content.
 
 ## The semantic side, and what it costs
 
-Ranking runs through `basin.Embedder`. The only implementation in the tree is
-`basin.LexicalHashEmbedder`, which its own documentation calls a lexical
-baseline and not a semantic model, and every result names the embedder that
-produced it so a lexical ranking is never presented as a semantic one. A real
-model attaches either in-process through that interface or, keeping this
-process socket-free, through the sealed loopback service in
-`components/nomad-semantic-basins/basin/loopback`. Nothing in the Nomad tree
-builds that model; see `EXTERNAL_BLOCKERS.md` in nomad-protocol.
+Nomad uses embeddings; it is not built around an embedding model. The core
+knows a manifest, an adapter and a runtime, and nothing about EmbeddingGemma,
+E5 or Qwen beyond a catalogue entry naming which adapter each needs. A model
+family that does not exist yet is added by writing an adapter.
+
+`basin/model` holds that machinery: manifests, the built-in `gemma`, `e5`,
+`qwen` and `plain` adapters, a registry that verifies packs, and the
+fingerprint. The fingerprint is the load-bearing part. Two installations can
+both say "embeddinggemma-300m" and hold different weights, a different
+tokenizer or a different output width, and their embeddings are then not
+comparable while every label agrees, so identity is a digest over everything
+that can move a vector -- weights, tokenizer, adapter and its version, runtime,
+quantization, both widths, normalization and any inference setting. Each
+fingerprint gets its own index directory, which is what makes switching models
+reversible instead of destructive.
+
+Inspect a pack with `nomad-model -pack <dir>`, or list what this build can
+offer with `nomad-model -catalogue`.
+
+The only embedder in the tree is still `basin.LexicalHashEmbedder`, which its
+own documentation calls a lexical baseline and not a semantic model. The client
+says so in its banner, and every result names the embedder that produced it, so
+a word match is never presented as an understanding of meaning. Weights are a
+third-party artifact with their own license and provenance; see EB-9 in
+nomad-protocol's `EXTERNAL_BLOCKERS.md`.
 
 Inference latency is a privacy property here, not just a responsiveness one.
 How long an embedder takes depends on the query, the object and how many

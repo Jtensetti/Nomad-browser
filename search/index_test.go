@@ -43,10 +43,11 @@ func (failingEmbedder) Embed(context.Context, string) ([]float32, error) { retur
 func testIndex(t *testing.T, embedder basin.Embedder) *Index {
 	t.Helper()
 	index, err := New(Config{
-		Embedder:   embedder,
-		Quantizer:  basin.Quantizer{Seed: [32]byte{7}},
-		Provenance: ProvenanceLexical,
-		Budget:     2 * time.Second,
+		Embedder:    embedder,
+		Quantizer:   basin.Quantizer{Seed: [32]byte{7}},
+		Provenance:  ProvenanceLexical,
+		Fingerprint: LexicalFingerprint(128),
+		Budget:      2 * time.Second,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -121,10 +122,11 @@ func TestASearchCostsExactlyOneEmbeddingCall(t *testing.T) {
 // for the budget, never for the model.
 func TestAHangingEmbedderIsAbandonedAtItsBudget(t *testing.T) {
 	index, err := New(Config{
-		Embedder:   hangingEmbedder{},
-		Quantizer:  basin.Quantizer{Seed: [32]byte{7}},
-		Provenance: ProvenanceLexical,
-		Budget:     50 * time.Millisecond,
+		Embedder:    hangingEmbedder{},
+		Quantizer:   basin.Quantizer{Seed: [32]byte{7}},
+		Provenance:  ProvenanceLexical,
+		Fingerprint: LexicalFingerprint(128),
+		Budget:      50 * time.Millisecond,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -183,15 +185,24 @@ func TestEveryResultCarriesItsProvenance(t *testing.T) {
 
 // An index cannot be built without a stated provenance or a budget. Both
 // defaults would be silent: an unnamed embedder, or an unbounded one.
-func TestAnIndexCannotBeBuiltWithoutProvenanceOrBudget(t *testing.T) {
+func TestAnIndexCannotBeBuiltWithoutProvenanceBudgetOrFingerprint(t *testing.T) {
 	for _, testcase := range []struct {
 		name   string
 		config Config
 	}{
-		{"no embedder", Config{Provenance: ProvenanceLexical, Budget: time.Second}},
-		{"no provenance", Config{Embedder: lexical(), Budget: time.Second}},
-		{"blank provenance", Config{Embedder: lexical(), Provenance: "  ", Budget: time.Second}},
-		{"no budget", Config{Embedder: lexical(), Provenance: ProvenanceLexical}},
+		{"no embedder", Config{Provenance: ProvenanceLexical,
+			Fingerprint: LexicalFingerprint(128), Budget: time.Second}},
+		{"no provenance", Config{Embedder: lexical(),
+			Fingerprint: LexicalFingerprint(128), Budget: time.Second}},
+		{"blank provenance", Config{Embedder: lexical(), Provenance: "  ",
+			Fingerprint: LexicalFingerprint(128), Budget: time.Second}},
+		{"no budget", Config{Embedder: lexical(), Provenance: ProvenanceLexical,
+			Fingerprint: LexicalFingerprint(128)}},
+		{"no fingerprint", Config{Embedder: lexical(), Provenance: ProvenanceLexical,
+			Budget: time.Second}},
+		{"a fingerprint that is not hex", Config{Embedder: lexical(),
+			Provenance: ProvenanceLexical, Budget: time.Second,
+			Fingerprint: "../../etc/passwd"}},
 	} {
 		t.Run(testcase.name, func(t *testing.T) {
 			if _, err := New(testcase.config); err == nil {

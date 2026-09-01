@@ -135,3 +135,21 @@ func TestAnAmbiguousIDPrefixRendersNothing(t *testing.T) {
 		}
 	}
 }
+
+// The client says which ranking it is using, in the banner and not only in the
+// search results.
+//
+// A word match presented without qualification reads as an understanding of
+// meaning, and a reader who believes the search is semantic will conclude an
+// object is absent when it was only worded differently. This build has no
+// semantic model, and says so.
+func TestTheClientStatesThatItsRankingIsLexical(t *testing.T) {
+	output := drive(t, corpusDirectory(t), "list")
+	if !strings.Contains(output, "ranking: lexical") {
+		t.Fatalf("the banner does not name the ranking:\n%s", output)
+	}
+	if !strings.Contains(output, "no semantic model") {
+		t.Fatalf("the banner does not say a semantic model is absent, so a lexical "+
+			"ranking could be read as a semantic one:\n%s", output)
+	}
+}

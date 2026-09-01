@@ -163,3 +163,33 @@ func TestTheSearchIndexLinksNoNetworkingPackage(t *testing.T) {
 		}
 	}
 }
+
+// Verifying a model pack is hashing files and reading a manifest. Neither
+// needs an inference runtime, so the tool that does it links none -- and keeps
+// the same guarantee as the client it reports for.
+//
+// This matters because the obvious way to run a real model is the sealed
+// loopback service, and that would put a socket in whatever links it. Keeping
+// verification separate from inference is what lets a reader check a pack
+// without giving the checker a network stack.
+func TestTheModelToolLinksNoNetworkingPackage(t *testing.T) {
+	deps := dependencies(t, "./cmd/nomad-model")
+	for _, forbidden := range []string{"net", "net/http", "net/url", "crypto/tls", "os/exec"} {
+		if deps[forbidden] {
+			t.Fatalf("the model tool links %s", forbidden)
+		}
+	}
+}
+
+// The semantic model machinery is reachable from the client -- the client has
+// to know a fingerprint to pick an index -- so it must not drag a socket in
+// behind it. basin/model describes and verifies models; it does not run them.
+func TestTheModelPackageDoesNotPutASocketInTheClient(t *testing.T) {
+	deps := dependencies(t, "github.com/Jtensetti/nomad-semantic-basins/basin/model")
+	for _, forbidden := range []string{"net", "net/http", "crypto/tls", "os/exec"} {
+		if deps[forbidden] {
+			t.Fatalf("basin/model links %s; a model pack may open a socket, the "+
+				"package that describes models may not", forbidden)
+		}
+	}
+}

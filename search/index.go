@@ -72,10 +72,11 @@ type Result struct {
 // a re-tokenization per candidate per keystroke. That is also what makes a
 // slow embedder affordable: it is slow once per object, not once per search.
 type Index struct {
-	embedder   basin.Embedder
-	quantizer  basin.Quantizer
-	provenance Provenance
-	budget     time.Duration
+	embedder    basin.Embedder
+	quantizer   basin.Quantizer
+	provenance  Provenance
+	fingerprint string
+	budget      time.Duration
 
 	mutex   sync.RWMutex
 	entries map[string]entry
@@ -102,6 +103,15 @@ type Config struct {
 	Embedder   basin.Embedder
 	Quantizer  basin.Quantizer
 	Provenance Provenance
+	// Fingerprint identifies what the embedder computes, and it is what an
+	// index is stored under.
+	//
+	// Not the model's name: two installations can hold different weights, a
+	// different tokenizer or a different output width under one name, and
+	// their vectors are then not comparable at all while every label agrees.
+	// basin/model derives one from everything that can move a vector; the
+	// lexical baseline has LexicalFingerprint.
+	Fingerprint string
 	// Budget bounds one embedding call. It is enforced through the context, so
 	// an embedder that respects cancellation stops, and one that does not is
 	// abandoned rather than waited on.
@@ -119,17 +129,25 @@ func New(config Config) (*Index, error) {
 	if config.Budget <= 0 {
 		return nil, errors.New("search index requires a positive embedding budget")
 	}
+	if err := ValidFingerprint(config.Fingerprint); err != nil {
+		return nil, err
+	}
 	return &Index{
-		embedder:   config.Embedder,
-		quantizer:  config.Quantizer,
-		provenance: config.Provenance,
-		budget:     config.Budget,
-		entries:    map[string]entry{},
+		embedder:    config.Embedder,
+		quantizer:   config.Quantizer,
+		provenance:  config.Provenance,
+		fingerprint: config.Fingerprint,
+		budget:      config.Budget,
+		entries:     map[string]entry{},
 	}, nil
 }
 
 // Provenance names the embedder behind this index.
 func (index *Index) Provenance() Provenance { return index.provenance }
+
+// Fingerprint identifies what this index's embedder computes. Two indexes with
+// different fingerprints hold vectors that cannot be compared with each other.
+func (index *Index) Fingerprint() string { return index.fingerprint }
 
 // Add embeds and tokenizes one object, making it searchable.
 //
