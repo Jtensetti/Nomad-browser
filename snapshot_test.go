@@ -117,3 +117,93 @@ func walkComponents(t *testing.T) []string {
 	sort.Strings(shipped)
 	return shipped
 }
+
+// COMPONENTS.sha256 and COMPONENTS.lock pin different things, and only one of
+// them was checked.
+//
+// The digest manifest pins the bytes that ship. The lock records which upstream
+// commit those bytes came from, which is what anyone auditing this integration
+// follows to read the component's history. Nothing compared them, so all three
+// lock entries had gone stale while the manifest stayed correct and every gate
+// stayed green -- and an auditor checking out the recorded commit would have
+// read code this repository does not carry.
+//
+// nomad-testnet hit exactly this and answered it in its own lock v2; this is
+// the same check, and the reason the lock here now carries a tree digest.
+func TestTheSnapshotLockTracksTheVendoredTrees(t *testing.T) {
+	manifest, err := os.ReadFile("COMPONENTS.sha256")
+	if err != nil {
+		t.Fatal(err)
+	}
+	byComponent := map[string][]string{}
+	for _, line := range strings.Split(string(manifest), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			t.Fatalf("COMPONENTS.sha256 entry %q is not a digest and a path", line)
+		}
+		parts := strings.Split(fields[1], "/")
+		if len(parts) < 2 || parts[0] != "components" {
+			t.Fatalf("COMPONENTS.sha256 entry %q is not under components/", fields[1])
+		}
+		byComponent[parts[1]] = append(byComponent[parts[1]], fields[0]+"  "+fields[1])
+	}
+	if len(byComponent) == 0 {
+		t.Fatal("no components ship, so this proves nothing")
+	}
+
+	locked := readSnapshotLock(t)
+	if len(locked) != len(byComponent) {
+		t.Errorf("the lock names %d components and %d ship", len(locked), len(byComponent))
+	}
+	for component, lines := range byComponent {
+		module := "github.com/Jtensetti/" + component
+		entry, listed := locked[module]
+		if !listed {
+			t.Errorf("%s ships but COMPONENTS.lock does not name it", module)
+			continue
+		}
+		sort.Strings(lines)
+		sum := sha256.Sum256([]byte(strings.Join(lines, "\n") + "\n"))
+		if actual := hex.EncodeToString(sum[:]); actual != entry.tree {
+			t.Errorf("%s: the vendored tree hashes to %s but the lock records %s. The "+
+				"vendored code moved and the lock did not, so the commit it names is "+
+				"no longer the code that ships.", module, actual[:16], entry.tree[:16])
+		}
+	}
+	for module := range locked {
+		if _, ships := byComponent[strings.TrimPrefix(module, "github.com/Jtensetti/")]; !ships {
+			t.Errorf("COMPONENTS.lock names %s, which does not ship", module)
+		}
+	}
+}
+
+type snapshotLockEntry struct{ commit, branch, tree string }
+
+func readSnapshotLock(t *testing.T) map[string]snapshotLockEntry {
+	t.Helper()
+	encoded, err := os.ReadFile("COMPONENTS.lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries := map[string]snapshotLockEntry{}
+	for index, line := range strings.Split(string(encoded), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) != 4 {
+			t.Fatalf("COMPONENTS.lock line %d has %d fields, want module, commit, "+
+				"branch and tree digest: %q", index+1, len(fields), line)
+		}
+		if _, exists := entries[fields[0]]; exists {
+			t.Fatalf("COMPONENTS.lock names %s twice", fields[0])
+		}
+		entries[fields[0]] = snapshotLockEntry{fields[1], fields[2], fields[3]}
+	}
+	return entries
+}
