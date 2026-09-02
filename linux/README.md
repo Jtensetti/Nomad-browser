@@ -69,3 +69,35 @@ Without systemd, use `run-sandboxed.sh`, which prefers bubblewrap and falls
 back to `unshare`. If neither is available it refuses to run rather than
 starting outside the sandbox: running anyway would leave the claim resting on
 the program alone, which is not what the script promises.
+
+## Removing it
+
+The client writes nothing. It reads the object directory, holds its index in
+memory, and creates no file, directory or temporary anywhere -- asserted by
+`TestTheLinuxClientWritesNothingToDisk`, which walks the call graph of every
+package the client links and fails on any standard-library call that creates
+or modifies a path. That test carries its own control: the detector is pointed
+at a package that does write and must find it, so a detector that listed
+nothing could not pass by finding nothing.
+
+So removing the client is removing the binary and, if you installed it, the
+unit file:
+
+    rm -f "$(command -v nomad-browser)" ~/.config/systemd/user/nomad-browser.service
+
+The object directory is yours: it holds the verified objects a materializer
+put there, not anything this client produced, and nothing here deletes it for
+you.
+
+What that leaves is what the operating system keeps regardless -- shell
+history naming your `-trust` key, a core dump if the process crashed with
+`kernel.core_pattern` set, and the systemd journal's record that the unit ran.
+None of those is the client writing; all of them are outside anything it
+controls. The macOS side documents the equivalent in `docs/DATA_RETENTION.md`,
+and the same reasoning applies: what an operating system retains is answered
+honestly rather than claimed away.
+
+If a future build persists an index -- which would be a reasonable thing to
+want -- this section, that test and `run-sandboxed.sh`'s read-only bind of the
+object directory all change together. The test exists so that is a decision
+rather than a discovery.
