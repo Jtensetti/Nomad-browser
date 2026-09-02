@@ -21,6 +21,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Jtensetti/nomad-semantic-basins/basin"
@@ -41,7 +42,17 @@ type options struct {
 	trust      string
 	budget     time.Duration
 	dimensions int
+	reload     time.Duration
 }
+
+// DefaultReloadInterval is how often the client rescans its object directory.
+//
+// It is a constant of this program, not a function of anything the reader
+// does. The materializer writes objects on its own schedule and this client
+// has no way to be told about one, so a rescan is the only way a new object
+// becomes visible -- and rescanning on a command, or faster when a search
+// returned nothing, would make the reader's activity the thing that drives it.
+const DefaultReloadInterval = 30 * time.Second
 
 func run(args []string, input io.Reader, output io.Writer) error {
 	var opts options
@@ -54,6 +65,8 @@ func run(args []string, input io.Reader, output io.Writer) error {
 	flags.DurationVar(&opts.budget, "budget", 2*time.Second,
 		"time limit for one embedding call")
 	flags.IntVar(&opts.dimensions, "dimensions", 256, "embedding dimensions")
+	flags.DurationVar(&opts.reload, "reload", DefaultReloadInterval,
+		"how often to rescan the object directory; 0 scans once at startup and never again")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -91,8 +104,20 @@ func run(args []string, input io.Reader, output io.Writer) error {
 	ctx := context.Background()
 	indexed, unindexed := index.AddAll(ctx, scan.Objects)
 
-	session := &session{objects: scan.Objects, index: index, output: output}
+	session := &session{
+		objects:   scan.Objects,
+		index:     index,
+		output:    output,
+		directory: opts.directory,
+		trusted:   trusted,
+	}
 	session.banner(scan.Rejected, indexed, unindexed)
+
+	if opts.reload > 0 {
+		ctx, stop := context.WithCancel(ctx)
+		defer stop()
+		go session.rescanUntil(ctx, opts.reload)
+	}
 	return session.loop(ctx, input)
 }
 
@@ -120,9 +145,79 @@ func defaultObjectDirectory() string {
 }
 
 type session struct {
+	output    io.Writer
+	directory string
+	trusted   objectstore.TrustSet
+	index     *search.Index
+
+	// observed, when set, is called with the instant of every rescan. Only the
+	// query-independence test uses it: a rescan has no other externally
+	// visible effect, so there would otherwise be nothing to measure.
+	observed func(time.Time)
+
+	mutex   sync.RWMutex
 	objects []objectstore.Object
-	index   *search.Index
-	output  io.Writer
+	last    rescan
+}
+
+// rescan is what the most recent directory scan found. It is reported by the
+// status command rather than printed when it happens: a line arriving in the
+// middle of someone typing is noise, and a rescan that failed silently is the
+// thing this record exists to prevent.
+type rescan struct {
+	at       time.Time
+	ran      bool
+	err      error
+	verified int
+	rejected int
+	added    int
+	removed  int
+	failed   int
+}
+
+// rescanUntil rescans on a fixed interval until the context ends.
+//
+// The ticker is the only thing that drives it. No command, no query, no empty
+// result set and no failure changes when the next one happens, which is the
+// whole property: cache discovery is a public periodic process, and what it
+// finds is private to this reader.
+func (s *session) rescanUntil(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.rescan(ctx)
+		}
+	}
+}
+
+func (s *session) rescan(ctx context.Context) {
+	now := time.Now()
+	if s.observed != nil {
+		s.observed(now)
+	}
+	scan, err := objectstore.Load(s.directory, s.trusted)
+	if err != nil {
+		s.mutex.Lock()
+		s.last = rescan{at: now, ran: true, err: err}
+		s.mutex.Unlock()
+		return
+	}
+	added, failed, removed := s.index.Sync(ctx, scan.Objects)
+	s.mutex.Lock()
+	s.objects = scan.Objects
+	s.last = rescan{at: now, ran: true, verified: len(scan.Objects), rejected: scan.Rejected,
+		added: added, removed: removed, failed: failed}
+	s.mutex.Unlock()
+}
+
+func (s *session) snapshot() []objectstore.Object {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+	return s.objects
 }
 
 func (s *session) printf(format string, args ...any) {
@@ -157,11 +252,14 @@ func (s *session) loop(ctx context.Context, input io.Reader) error {
 			return nil
 		case "help":
 			s.printf("list                 every verified object\n" +
+				"status               what the last directory rescan found\n" +
 				"search <text>        rank objects against text\n" +
 				"read <id>            render one object by id prefix\n" +
 				"quit                 leave\n")
 		case "list":
 			s.list()
+		case "status":
+			s.status()
 		case "search":
 			if err := s.search(ctx, argument); err != nil {
 				s.printf("search failed: %v\n", err)
@@ -185,11 +283,12 @@ const maxCommandBytes = 8 << 10
 const shortID = 12
 
 func (s *session) list() {
-	if len(s.objects) == 0 {
+	objects := s.snapshot()
+	if len(objects) == 0 {
 		s.printf("no verified objects\n")
 		return
 	}
-	for _, object := range s.objects {
+	for _, object := range objects {
 		s.printf("%s  %s\n", object.ID[:shortID], object.Document.Title)
 	}
 }
@@ -277,4 +376,36 @@ func (s *session) read(prefix string) {
 	// Rendered as the media type the signature covers, which is the only one
 	// this client renders at all.
 	s.printf("\n%s\n\n", document.Body)
+}
+
+// status reports the last rescan.
+//
+// A rescan is not announced when it happens: a line arriving in the middle of
+// someone typing is noise. But a rescan that failed and said nothing would
+// leave a reader looking at a stale corpus with no way to tell, so the record
+// is kept and shown on request.
+func (s *session) status() {
+	s.mutex.RLock()
+	last := s.last
+	objects := len(s.objects)
+	s.mutex.RUnlock()
+
+	s.printf("%d verified objects, %d searchable\n", objects, s.index.Len())
+	if !last.ran {
+		s.printf("no rescan yet; the directory was read once at startup\n")
+		return
+	}
+	if last.err != nil {
+		s.printf("last rescan at %s failed: %v\n",
+			last.at.UTC().Format(time.RFC3339), last.err)
+		return
+	}
+	s.printf("last rescan at %s: %d verified, %d added, %d removed\n",
+		last.at.UTC().Format(time.RFC3339), last.verified, last.added, last.removed)
+	if last.rejected > 0 {
+		s.printf("%d files in the object directory did not verify\n", last.rejected)
+	}
+	if last.failed > 0 {
+		s.printf("%d verified objects could not be indexed and are not searchable\n", last.failed)
+	}
 }

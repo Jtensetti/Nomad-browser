@@ -186,6 +186,43 @@ func (index *Index) AddAll(ctx context.Context, objects []objectstore.Object) (i
 	return indexed, failed
 }
 
+// Sync makes the index match a directory scan: anything in objects that is not
+// already indexed is embedded, and anything indexed that the scan no longer
+// contains is dropped.
+//
+// An object identifier is its content commitment, so an identifier already
+// present is the same bytes and is not embedded again. That is what keeps a
+// periodic rescan from costing one embedding per object per interval.
+func (index *Index) Sync(ctx context.Context, objects []objectstore.Object) (added, failed, removed int) {
+	present := make(map[string]struct{}, len(objects))
+	for _, object := range objects {
+		present[object.ID] = struct{}{}
+	}
+
+	index.mutex.Lock()
+	known := make(map[string]struct{}, len(index.entries))
+	for id := range index.entries {
+		known[id] = struct{}{}
+		if _, still := present[id]; !still {
+			delete(index.entries, id)
+			removed++
+		}
+	}
+	index.mutex.Unlock()
+
+	for _, object := range objects {
+		if _, already := known[object.ID]; already {
+			continue
+		}
+		if err := index.Add(ctx, object); err != nil {
+			failed++
+			continue
+		}
+		added++
+	}
+	return added, failed, removed
+}
+
 // Len reports how many objects are searchable.
 func (index *Index) Len() int {
 	index.mutex.RLock()
