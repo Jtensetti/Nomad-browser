@@ -220,3 +220,42 @@ func mean(values []time.Duration) float64 {
 	}
 	return total / float64(len(values))
 }
+
+// status is how a failed rescan becomes visible: rescans are not announced
+// when they happen, because a line arriving mid-typing is noise, so a rescan
+// that failed silently would leave a reader on a stale corpus with no way to
+// tell. That makes status the only place the failure surfaces.
+func TestStatusReportsWhatTheLastRescanFound(t *testing.T) {
+	directory, held := halfCorpus(t)
+	output := &strings.Builder{}
+	s := newRescanSession(t, directory, output)
+
+	s.status()
+	if before := output.String(); !strings.Contains(before, "no rescan yet") {
+		t.Fatalf("status before any rescan said %q", before)
+	}
+
+	output.Reset()
+	for index, envelope := range held {
+		writeEnvelope(t, directory, 100+index, envelope)
+	}
+	s.rescan(context.Background())
+	s.status()
+	report := output.String()
+	for _, expected := range []string{"last rescan at", "verified", "added"} {
+		if !strings.Contains(report, expected) {
+			t.Fatalf("status does not mention %q: %q", expected, report)
+		}
+	}
+
+	// A rescan that failed must say so rather than leaving the previous
+	// counts standing, which would read as a corpus that simply stopped
+	// changing.
+	output.Reset()
+	s.directory = filepath.Join(t.TempDir(), "gone")
+	s.rescan(context.Background())
+	s.status()
+	if failure := output.String(); !strings.Contains(failure, "failed") {
+		t.Fatalf("status after a failed rescan said %q", failure)
+	}
+}
