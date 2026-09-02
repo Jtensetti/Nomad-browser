@@ -1,7 +1,32 @@
 name: linux-release
 on:
+  # This has run zero times. Two reasons, and both had to be fixed.
+  #
+  # The tag pattern matched nothing this project creates: releases are tagged
+  # `nomad-browser-macos-v<version>` by macos-notarized-release.yml, and no
+  # `v*` tag has ever existed. And `workflow_dispatch` answers 404 for a
+  # workflow that is not on the default branch, which this is not -- so there
+  # was no way to run it at all.
+  #
+  # So the reproducible Linux build, the tarball, the SBOM and the provenance
+  # for the Linux client had never been produced by anything. The networkless
+  # check is the one part that was already covered: ci.yml runs it on every
+  # push.
+  #
+  # `push`, filtered to what goes into the tarball, so the build is exercised
+  # from the branch the code is on. It publishes nothing -- the artifacts are
+  # uploaded to the run -- so there is nothing here a push should not trigger.
   push:
-    tags: ['v*']
+    paths:
+      - "cmd/nomad-browser/**"
+      - "linux/**"
+      - "scripts/verify-networkless.sh"
+      - "scripts/generate-sbom.sh"
+      - "scripts/generate-provenance.sh"
+      - ".github/workflows/linux-release.yml"
+      - "go.mod"
+      - "go.sum"
+    tags: ['nomad-browser-linux-v*']
   workflow_dispatch:
 
 permissions:
