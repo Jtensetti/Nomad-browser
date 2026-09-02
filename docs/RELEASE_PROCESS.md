@@ -55,6 +55,53 @@ Not enforced by code, and it cannot be:
 6. **Record the decision** — approvers, digests, CI run, and what each approver
    checked — in `nomad-protocol production/EVIDENCE_INDEX.md`.
 
+## The Linux client
+
+The steps above are written for the macOS disk image, which is what this
+project has released. The Linux client is built by `linux-release.yml` --
+reproducibly for amd64 and arm64, with an SBOM and provenance -- and until
+2026-09-02 that workflow had never run, because its tag pattern matched no tag
+this project creates and `workflow_dispatch` cannot fire from a non-default
+branch. So the question of how a Linux artifact reaches anyone had never come
+up.
+
+**The mechanism is the same one.** A manifest names an artifact, a digest and
+a byte count; nothing in `update/` mentions macOS, a disk image or an
+application bundle. `update/linux_release_test.go` drives the whole path with a
+real gzipped tarball: two distinct approvals required, one approver signing
+twice refused, a padded archive refused on length before its hash, and a
+manifest for the amd64 tarball refusing the arm64 one. That last case matters
+here more than on macOS, because a release has two Linux artifacts and a
+manifest must not authorise the other.
+
+**What differs, and what an operator has to know.**
+
+1. **Tag.** `nomad-browser-linux-v<version>`, which is what `linux-release.yml`
+   now triggers on. The macOS tag is `nomad-browser-macos-v<version>`. They are
+   separate tags because they are separate artifacts with separate digests, and
+   one manifest cannot cover both.
+2. **No notarization, and no equivalent.** macOS artifacts are Developer
+   ID-signed and notarized (EB-1). Linux has no platform-level equivalent, so
+   the two approvals and the digest in the manifest are the *whole* of the
+   authenticity story. On macOS they are one layer of two.
+3. **Verification is the same command.** `nomad-browser-verify` takes the
+   artifact path and does not care what is in it:
+   ```
+   nomad-browser-verify -manifest manifest.json \
+     -artifact nomad-browser-linux-amd64.tar.gz \
+     -watermark installed.json -dry-run
+   ```
+   A build with fewer than two compiled-in approver keys refuses here and says
+   so, exactly as on macOS.
+4. **Both architectures, or neither.** A release publishes amd64 and arm64
+   together, each with its own manifest. Publishing one is a release that
+   silently drops a platform.
+
+**Not yet true.** No Linux release has been made, and per DEC-027 the client
+stays a build target until there is a decision to offer it. What has changed is
+that the process no longer stops that decision: the gap DEC-027 recorded was
+that there was no process, and there now is one.
+
 ## Rollback
 
 There is no automatic rollback, and that is deliberate. An updater that can
@@ -90,3 +137,6 @@ is recorded rather than solved.
 - **Two people.** The mechanism is ready and no release keys exist (EB-7), nor
   a second approver (EB-6). Until then the process is exercised only against
   test keys, which the tool says out loud every time it is used that way.
+- **A decision about the Linux client.** The process now covers it and the
+  build now runs, but nothing has been offered to anyone; DEC-027 records that
+  it stays a build target until that is decided.
