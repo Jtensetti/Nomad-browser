@@ -17,6 +17,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/Jtensetti/nomad-semantic-basins/basin/model"
@@ -65,11 +66,9 @@ func listCatalogue(output io.Writer) error {
 		fmt.Fprintf(output, "  dimensions   %d recommended of %d native %v\n",
 			entry.RecommendedDimensions, entry.NativeDimensions, entry.SupportedDims)
 		fmt.Fprintf(output, "  tokens       %d\n", entry.MaxInputTokens)
-		fmt.Fprintf(output, "  languages    %d\n", entry.Languages)
 		fmt.Fprintf(output, "  license      %s%s\n", entry.License, noticeNote(entry.NoticeRequired))
 		fmt.Fprintf(output, "  source       %s\n", entry.Source)
-		fmt.Fprintf(output, "  install      %s, about %d MiB on disk\n",
-			entry.Availability, entry.ApproximateDiskBytes>>20)
+		fmt.Fprintf(output, "  install      %s\n", entry.Availability)
 	}
 	return nil
 }
@@ -143,11 +142,7 @@ func report(output io.Writer, pack model.Pack, indexRoot string) error {
 		for key := range settings {
 			keys = append(keys, key)
 		}
-		for i := 1; i < len(keys); i++ {
-			for j := i; j > 0 && keys[j] < keys[j-1]; j-- {
-				keys[j], keys[j-1] = keys[j-1], keys[j]
-			}
-		}
+		sort.Strings(keys)
 		fmt.Fprintf(output, "  settings     %s\n", strings.Join(keys, ", "))
 	}
 	fmt.Fprintf(output, "  verified     %s and %s match their digests\n",

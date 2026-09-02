@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Jtensetti/nomad-browser/internal/demotrust"
 )
 
 func writeObject(t *testing.T, directory, name string, envelope Envelope) {
@@ -89,7 +91,7 @@ func TestOneHostileFileDoesNotSuppressTheRest(t *testing.T) {
 // that was given fewer objects.
 func TestRejectionsAreReportedRatherThanSwallowed(t *testing.T) {
 	directory := t.TempDir()
-	trusted, err := ParseTrustSet(demoPublisherKey)
+	trusted, err := ParseTrustSet(demotrust.PublisherKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +111,7 @@ func TestRejectionsAreReportedRatherThanSwallowed(t *testing.T) {
 // An unreadable directory is not an empty one. Collapsing the two would hide a
 // misconfigured cache path behind a client that simply shows nothing.
 func TestAMissingDirectoryIsAnErrorNotAnEmptyResult(t *testing.T) {
-	trusted, err := ParseTrustSet(demoPublisherKey)
+	trusted, err := ParseTrustSet(demotrust.PublisherKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +158,7 @@ func TestASymlinkIsNotFollowedOutOfTheCache(t *testing.T) {
 // costs a stat rather than a parse.
 func TestAnOversizeFileIsRefused(t *testing.T) {
 	directory := t.TempDir()
-	trusted, err := ParseTrustSet(demoPublisherKey)
+	trusted, err := ParseTrustSet(demotrust.PublisherKey)
 	if err != nil {
 		t.Fatal(err)
 	}

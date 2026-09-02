@@ -70,20 +70,3 @@ func (m *Manager) Open(config Config) (*Index, error) {
 	m.indexes[config.Fingerprint] = index
 	return index, nil
 }
-
-// Fingerprints lists the indexes this manager holds, in a stable order.
-func (m *Manager) Fingerprints() []string {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
-	out := make([]string, 0, len(m.indexes))
-	for fingerprint := range m.indexes {
-		out = append(out, fingerprint)
-	}
-	for i := 1; i < len(out); i++ {
-		for j := i; j > 0 && out[j] < out[j-1]; j-- {
-			out[j], out[j-1] = out[j-1], out[j]
-		}
-	}
-	return out
-}

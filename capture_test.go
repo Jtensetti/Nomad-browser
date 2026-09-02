@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 	"unsafe"
+
+	"github.com/Jtensetti/nomad-browser/internal/demotrust"
 )
 
 // F-08 asks for a measurement rather than an argument: zero browser-originated
@@ -42,8 +44,6 @@ const (
 	captureClientVar   = "NOMAD_BROWSER_CAPTURE_CLIENT"
 	captureObjectsVar  = "NOMAD_BROWSER_CAPTURE_OBJECTS"
 	captureModeVar     = "NOMAD_BROWSER_CAPTURE_MODE"
-
-	demoPublisherKey = "SsX0q+oi8C1+v0yTSrltfxYkztmjrdJNE/gN7XN0jEk="
 )
 
 type interfaceRequest struct {
@@ -286,7 +286,7 @@ func runClientCounted(t *testing.T) {
 	if client == "" || objects == "" {
 		t.Fatal("the child was started without a client or a corpus")
 	}
-	command := exec.Command(client, "-objects", objects, "-trust", demoPublisherKey)
+	command := exec.Command(client, "-objects", objects, "-trust", demotrust.PublisherKey)
 	command.Stdin = strings.NewReader("list\nsearch nomad\nquit\n")
 	output, err := command.CombinedOutput()
 	if err != nil {

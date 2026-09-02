@@ -2,6 +2,7 @@ package search
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -50,9 +51,7 @@ func LexicalFingerprint(dimensions int) string {
 	digest := sha256.New()
 	digest.Write(lexicalDomain)
 	var width [8]byte
-	for shift := 0; shift < 8; shift++ {
-		width[7-shift] = byte(dimensions >> (8 * shift))
-	}
+	binary.BigEndian.PutUint64(width[:], uint64(dimensions))
 	digest.Write(width[:])
 	return hex.EncodeToString(digest.Sum(nil))
 }

@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-)
 
-const demoPublisherKey = "SsX0q+oi8C1+v0yTSrltfxYkztmjrdJNE/gN7XN0jEk="
+	"github.com/Jtensetti/nomad-browser/internal/demotrust"
+)
 
 // corpusDirectory materializes the same catalog the Swift client ships, so the
 // client is exercised against real signed objects rather than fixtures written
@@ -37,7 +37,7 @@ func corpusDirectory(t *testing.T) string {
 func drive(t *testing.T, directory string, commands ...string) string {
 	t.Helper()
 	var out strings.Builder
-	err := run([]string{"-objects", directory, "-trust", demoPublisherKey},
+	err := run([]string{"-objects", directory, "-trust", demotrust.PublisherKey},
 		strings.NewReader(strings.Join(append(commands, "quit"), "\n")+"\n"), &out)
 	if err != nil {
 		t.Fatalf("client failed: %v\n%s", err, out.String())

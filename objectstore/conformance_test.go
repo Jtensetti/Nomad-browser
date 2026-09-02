@@ -7,12 +7,9 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
-)
 
-// demoPublisherKey is the publisher the Swift client anchors in
-// macos/Sources/NomadBrowser/Models.swift. It is a demo key: it anchors the
-// catalog shipped for the alpha and nothing else.
-const demoPublisherKey = "SsX0q+oi8C1+v0yTSrltfxYkztmjrdJNE/gN7XN0jEk="
+	"github.com/Jtensetti/nomad-browser/internal/demotrust"
+)
 
 func demoCatalog(t *testing.T) []Envelope {
 	t.Helper()
@@ -35,7 +32,7 @@ func demoCatalog(t *testing.T) []Envelope {
 // renders. A second implementation that refuses the first one's catalog is a
 // parser differential, whichever of the two is right.
 func TestTheGoVerifierAcceptsTheCorpusTheSwiftClientShips(t *testing.T) {
-	trusted, err := ParseTrustSet(demoPublisherKey)
+	trusted, err := ParseTrustSet(demotrust.PublisherKey)
 	if err != nil {
 		t.Fatal(err)
 	}
