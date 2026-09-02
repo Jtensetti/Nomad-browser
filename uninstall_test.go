@@ -24,22 +24,46 @@ import (
 const uninstallScript = "macos/scripts/uninstall.sh"
 const retentionDoc = "docs/DATA_RETENTION.md"
 
-// appendedPathComponent finds the literal directory names the Swift sources
-// build with appendingPathComponent.
-var appendedPathComponent = regexp.MustCompile(`appendingPathComponent\("([^"]+)"`)
+// appendedPathComponent finds the directory names the Swift sources build with
+// appendingPathComponent, whether the name is written inline or held in a
+// constant. The constant form is not a detail: the object directory moved into
+// one when the shared cache landed, and a scanner that only saw literals found
+// nothing at all -- which is why this test fails on an empty result rather
+// than passing with nothing to compare.
+var appendedPathComponent = regexp.MustCompile(`appendingPathComponent\(\s*("?[A-Za-z0-9_.-]+"?)`)
+
+// swiftConstants finds `static let name = "value"` so a path component held in
+// a constant resolves to the directory it names.
+var swiftConstants = regexp.MustCompile(`(?m)^\s*static let ([A-Za-z0-9_]+)\s*=\s*"([^"]*)"`)
 
 func TestTheUninstallerCoversEveryDirectoryTheAppConstructs(t *testing.T) {
 	sources := swiftSources(t, swiftSourceRoot)
 	script := readFile(t, uninstallScript)
 
+	constants := map[string]string{}
+	for _, source := range sources {
+		for _, match := range swiftConstants.FindAllStringSubmatch(readFile(t, source), -1) {
+			constants[match[1]] = match[2]
+		}
+	}
+
 	constructed := map[string]string{}
 	for _, source := range sources {
 		text := readFile(t, source)
 		for _, match := range appendedPathComponent.FindAllStringSubmatch(text, -1) {
-			name := match[1]
+			name := strings.Trim(match[1], `"`)
+			if !strings.HasPrefix(match[1], `"`) {
+				resolved, known := constants[name]
+				if !known {
+					// A component built from a runtime value names no fixed
+					// location, so there is nothing for the script to remove.
+					continue
+				}
+				name = resolved
+			}
 			// A file name rather than a directory, or a name built from a
 			// value, is not an install location.
-			if strings.Contains(name, ".") || strings.Contains(name, "\\(") {
+			if name == "" || strings.Contains(name, ".") || strings.Contains(name, "\\(") {
 				continue
 			}
 			constructed[name] = source
@@ -148,4 +172,36 @@ func readFile(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return string(encoded)
+}
+
+// The objects moved out of the sandbox container when the shared cache landed,
+// and an uninstaller that removes only the sandbox container leaves every
+// object a reader materialised on disk -- which is a record of what they read.
+// The check above cannot see that on its own: it compares directory names, and
+// "objects" appears in the script either way.
+func TestTheUninstallerRemovesTheSharedObjectCache(t *testing.T) {
+	script := readFile(t, uninstallScript)
+	if !strings.Contains(script, "Group Containers") {
+		t.Fatal("the uninstaller never touches ~/Library/Group Containers, and the " +
+			"browser reads its objects from a Team-scoped group container there, so " +
+			"uninstalling leaves everything the reader materialised behind")
+	}
+	suffix := ".nomad.browser-cache"
+	if !strings.Contains(script, suffix) {
+		t.Fatalf("the uninstaller does not name %s, so whatever it removes under "+
+			"Group Containers is not this application's", suffix)
+	}
+
+	// The suffix the script matches has to be the one the sources are pinned
+	// to, or the script removes a container nothing writes to.
+	var pinned bool
+	for _, source := range swiftSources(t, swiftSourceRoot) {
+		if strings.Contains(readFile(t, source), `appGroupSuffix = "`+suffix+`"`) {
+			pinned = true
+		}
+	}
+	if !pinned {
+		t.Fatalf("no Swift source pins appGroupSuffix to %s, so the uninstaller and "+
+			"the application disagree about where the objects are", suffix)
+	}
 }

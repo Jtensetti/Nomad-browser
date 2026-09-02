@@ -36,8 +36,17 @@ const (
 // this map fails the build.
 var justifiedEntitlements = map[string]string{
 	"com.apple.security.app-sandbox": "the sandbox is what denies network, and " +
-		"under it every capability is refused unless separately granted. It is the " +
-		"only entitlement this bundle should ever need",
+		"under it every capability is refused unless separately granted",
+	"com.apple.security.application-groups": "the browser reads verified objects " +
+		"from a Team-scoped shared container rather than from a path it is told, " +
+		"which is what makes the materializer the only bridge into it. Exactly one " +
+		"group, <TeamID>.nomad.browser-cache, and the browser is on the reading " +
+		"side of it: the network domain uses a separate fabric-cache group it " +
+		"cannot see, and macos/scripts/security_gate.sh fails the build on a " +
+		"second group, on a group that is not Team-scoped, or on a write capability " +
+		"appearing in the browser sources. A shared container is a real widening of " +
+		"the sandbox and it is here because the alternative -- the browser reaching " +
+		"a path outside its container -- is worse",
 }
 
 // forbiddenEntitlements are keys whose presence is a specific, named defeat of

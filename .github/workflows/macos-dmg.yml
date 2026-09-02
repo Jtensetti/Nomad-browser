@@ -9,12 +9,10 @@ on:
     paths:
       - "macos/**"
       - ".github/workflows/macos-dmg.yml"
-      - ".github/workflows/macos-notarized-release.yml"
   pull_request:
     paths:
       - "macos/**"
       - ".github/workflows/macos-dmg.yml"
-      - ".github/workflows/macos-notarized-release.yml"
   workflow_dispatch:
 
 permissions:
@@ -32,6 +30,9 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Run exact-head Swift test suite
+        run: swift test --package-path macos
 
       - name: Build, sandbox, ad-hoc sign and verify universal DMG
         env:

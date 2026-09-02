@@ -47,7 +47,31 @@ echo "Removing the application and its container:"
 # The sandbox container. Under com.apple.security.app-sandbox every standard
 # directory API resolves inside this path, so it holds all application state:
 # the objects directory, saved window state, and preferences.
-remove "$HOME/Library/Containers/$bundle_id" "sandbox container: objects, saved state, preferences"
+remove "$HOME/Library/Containers/$bundle_id" "sandbox container: saved state, preferences"
+
+# The App Group container, which is where the objects actually live.
+#
+# The sandbox container above used to hold them. It does not any more: the
+# browser reads verified objects from a Team-scoped shared container so the
+# materializer can be the only thing that writes into it, and that container is
+# outside the app's own. An uninstaller that removed only the sandbox container
+# left every object a reader had materialised on disk -- which is a record of
+# what they read.
+#
+# Matched by suffix rather than by Team ID, because the Team ID is a build-time
+# value this script does not have and the app may already be gone by the time
+# anyone runs this. macos/scripts/security_gate.sh pins the suffix and fails the
+# build on a second group, so the glob cannot match anything but a Nomad
+# browser-cache group.
+group_containers=0
+for container in "$HOME/Library/Group Containers/"*.nomad.browser-cache; do
+    [ -e "$container" ] || continue
+    group_containers=$((group_containers + 1))
+    remove "$container" "shared object cache: everything materialised for this reader"
+done
+if [ "$group_containers" -eq 0 ]; then
+    printf '  absent  %s\n' "$HOME/Library/Group Containers/<TeamID>.nomad.browser-cache"
+fi
 
 # The bundle itself, wherever the user put it.
 remove "/Applications/$app_name" "application bundle"
