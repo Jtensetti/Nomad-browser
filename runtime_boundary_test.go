@@ -57,15 +57,30 @@ var networkSyscalls = []string{
 // control is why that was caught rather than recorded as evidence.
 var syscallLine = regexp.MustCompile(`^(?:\[pid\s+(?:\d+)\]\s+|\d+\s+)?(\w+)\(`)
 
-// requireCapabilityGates reports whether this environment has declared that
-// the gates depending on an external tool or a kernel capability can run here.
+// requireCapabilityGates reports whether this environment has declared that a
+// named gate -- one depending on an external tool or a kernel capability -- can
+// run here.
 //
-// CI sets it. A skip is green, so a gate that quietly stopped running -- an
-// image that no longer ships the tool, a capability an OS release started
-// restricting -- is indistinguishable from a gate that passed. Where the
-// environment has promised the capability, its absence is a failure.
-func requireCapabilityGates() bool {
-	return os.Getenv("NOMAD_REQUIRE_CAPABILITY_GATES") == "1"
+// A skip is green, so a gate that quietly stopped running is indistinguishable
+// from one that passed, and where the environment has promised the capability
+// its absence has to be a failure.
+//
+// Two ways to promise. NOMAD_REQUIRE_CAPABILITY_GATES=1 means everything, which
+// is what the Linux job says. NOMAD_REQUIRE_CAPABILITIES is a comma-separated
+// list, which is what a platform with some of the tools and not others needs:
+// the macOS runner has python3 and no strace, and under the all-or-nothing
+// version it could declare neither -- so the parser-differential gate would
+// have become a silent skip on the platform the browser actually ships to.
+func requireCapabilityGates(capability string) bool {
+	if os.Getenv("NOMAD_REQUIRE_CAPABILITY_GATES") == "1" {
+		return true
+	}
+	for _, declared := range strings.Split(os.Getenv("NOMAD_REQUIRE_CAPABILITIES"), ",") {
+		if strings.TrimSpace(declared) == capability && capability != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func traceAvailable(t *testing.T) string {
@@ -74,10 +89,10 @@ func traceAvailable(t *testing.T) string {
 	if err == nil {
 		return strace
 	}
-	if requireCapabilityGates() {
-		t.Fatal("strace is unavailable, and NOMAD_REQUIRE_CAPABILITY_GATES=1 says this " +
-			"environment is supposed to run this gate. Skipping here would report what " +
-			"passing reports.")
+	if requireCapabilityGates("strace") {
+		t.Fatal("strace is unavailable, and this environment declared the strace " +
+			"capability, so it is supposed to run this gate. Skipping here would " +
+			"report what passing reports.")
 	}
 	t.Skip("strace is unavailable, so the runtime boundary cannot be observed; " +
 		"an environment limit and not a pass")
@@ -276,4 +291,35 @@ func TestARefusedReleaseAlsoMakesNoNetworkSyscall(t *testing.T) {
 			len(calls), strings.Join(calls, "\n"))
 	}
 	t.Logf("MEASURED: refusing a corrupted release makes no network syscall either")
+}
+
+// The declaration is what turns a skip into a failure, so a typo in a workflow
+// would quietly disarm every gate it names. These pin what each form means.
+func TestACapabilityIsRequiredOnlyWhenTheEnvironmentSaysSo(t *testing.T) {
+	for name, environment := range map[string]struct {
+		blanket, list string
+		capability    string
+		want          bool
+	}{
+		"nothing declared":               {"", "", "strace", false},
+		"blanket covers any capability":  {"1", "", "strace", true},
+		"blanket covers another":         {"1", "", "python3", true},
+		"blanket set to something else":  {"yes", "", "strace", false},
+		"named and asked for":            {"", "python3", "python3", true},
+		"named and not asked for":        {"", "python3", "strace", false},
+		"one of several named":           {"", "python3,tcpdump", "tcpdump", true},
+		"spaces around the names":        {"", " python3 , tcpdump ", "python3", true},
+		"empty list matches nothing":     {"", "", "", false},
+		"empty capability never matches": {"", "python3", "", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("NOMAD_REQUIRE_CAPABILITY_GATES", environment.blanket)
+			t.Setenv("NOMAD_REQUIRE_CAPABILITIES", environment.list)
+			if got := requireCapabilityGates(environment.capability); got != environment.want {
+				t.Fatalf("with GATES=%q CAPABILITIES=%q, %q was %v and should be %v",
+					environment.blanket, environment.list, environment.capability,
+					got, environment.want)
+			}
+		})
+	}
 }

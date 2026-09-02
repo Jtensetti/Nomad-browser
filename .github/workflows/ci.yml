@@ -106,3 +106,25 @@ jobs:
           path: |
             sbom.cdx.json
             provenance.intoto.jsonl
+
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with: {go-version: '1.25.x'}
+      # macOS is the platform this browser ships to, and until now the only
+      # thing that ran there was the DMG build. The Go suite -- the client, the
+      # renderer decisions, the update path -- ran on Linux only.
+      #
+      # The capability declaration is a list rather than the blanket flag
+      # because this runner has python3 and no strace: under the all-or-nothing
+      # version it could declare neither, and the parser-differential gate
+      # would have become a silent skip on exactly the platform that ships.
+      # The strace and tcpdump gates skip here and stay required on Linux.
+      - name: Run the tests, requiring the gates this platform can run
+        env:
+          NOMAD_REQUIRE_CAPABILITIES: 'python3'
+        run: go test -race ./...
+      - run: go vet ./...

@@ -145,9 +145,9 @@ func namespaceRunner() (namespaceMechanism, bool) {
 // required.
 func skipOrFail(t *testing.T, reason string) {
 	t.Helper()
-	if requireCapabilityGates() {
-		t.Fatalf("%s -- and NOMAD_REQUIRE_CAPABILITY_GATES=1 says this environment is "+
-			"supposed to run this gate, so skipping would report what passing reports", reason)
+	if requireCapabilityGates("tcpdump") {
+		t.Fatalf("%s -- and this environment declared the tcpdump capability, so it "+
+			"is supposed to run this gate; skipping would report what passing reports", reason)
 	}
 	t.Skip(reason)
 }

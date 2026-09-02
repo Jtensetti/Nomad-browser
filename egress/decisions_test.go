@@ -171,12 +171,30 @@ func TestEveryFrozenDecisionSaysWhyItMatters(t *testing.T) {
 // "data:text/plain;base64;charset=x,y" by treating the text before the first
 // semicolon as the media type. The second is a prefix match, and a prefix match
 // is exactly how a scriptable type gets past an allowlist.
-// requireCapabilityGates reports whether this environment has declared that the
-// gates depending on an external tool can run here. CI sets it, and installs
-// what they need, so a gate that stops running is a failure there rather than a
-// skip that reports what a pass reports.
-func requireCapabilityGates() bool {
-	return os.Getenv("NOMAD_REQUIRE_CAPABILITY_GATES") == "1"
+// requireCapabilityGates reports whether this environment has declared that a
+// named gate -- one depending on an external tool or a kernel capability -- can
+// run here.
+//
+// A skip is green, so a gate that quietly stopped running is indistinguishable
+// from one that passed, and where the environment has promised the capability
+// its absence has to be a failure.
+//
+// Two ways to promise. NOMAD_REQUIRE_CAPABILITY_GATES=1 means everything, which
+// is what the Linux job says. NOMAD_REQUIRE_CAPABILITIES is a comma-separated
+// list, which is what a platform with some of the tools and not others needs:
+// the macOS runner has python3 and no strace, and under the all-or-nothing
+// version it could declare neither -- so the parser-differential gate would
+// have become a silent skip on the platform the browser actually ships to.
+func requireCapabilityGates(capability string) bool {
+	if os.Getenv("NOMAD_REQUIRE_CAPABILITY_GATES") == "1" {
+		return true
+	}
+	for _, declared := range strings.Split(os.Getenv("NOMAD_REQUIRE_CAPABILITIES"), ",") {
+		if strings.TrimSpace(declared) == capability && capability != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func pythonForTheSecondImplementation(t *testing.T) string {
@@ -185,9 +203,9 @@ func pythonForTheSecondImplementation(t *testing.T) string {
 	if err == nil {
 		return python
 	}
-	if requireCapabilityGates() {
-		t.Fatal("python3 is unavailable, and NOMAD_REQUIRE_CAPABILITY_GATES=1 says this " +
-			"environment is supposed to run the second implementation")
+	if requireCapabilityGates("python3") {
+		t.Fatal("python3 is unavailable, and this environment declared the python3 " +
+			"capability, so it is supposed to run the second implementation")
 	}
 	t.Skip("python3 is unavailable, so the second implementation cannot be run; " +
 		"an environment limit and not a pass")
