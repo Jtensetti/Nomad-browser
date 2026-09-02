@@ -2,7 +2,9 @@ package nomadbrowser_test
 
 import (
 	"bufio"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -191,5 +193,68 @@ func TestTheModelPackageDoesNotPutASocketInTheClient(t *testing.T) {
 			t.Fatalf("basin/model links %s; a model pack may open a socket, the "+
 				"package that describes models may not", forbidden)
 		}
+	}
+}
+
+// The browser links no third-party code at all.
+//
+// Every dependency-graph test above bans a particular capability -- a socket,
+// a process, a private-selection package. This one bans the category those
+// bans are trying to reason about: code nobody here reviewed. A vulnerability
+// gate scans what is there, and a digest pins what is there; neither says
+// anything about a module arriving. This does.
+//
+// It is worth asserting rather than noticing because the current answer is
+// zero. A module graph at zero is a claim a reader can check in one line; one
+// at four is a list somebody has to keep reviewing, and the difference between
+// them should be a decision.
+func TestTheModuleGraphHasNoThirdPartyCode(t *testing.T) {
+	out, err := exec.Command("go", "list", "-m", "all").Output()
+	if err != nil {
+		t.Fatalf("go list -m all: %v", err)
+	}
+	const own = "github.com/Jtensetti/"
+	var third []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		module, _, _ := strings.Cut(line, " ")
+		if module == "" || strings.HasPrefix(module, own) {
+			continue
+		}
+		third = append(third, module)
+	}
+	if len(third) > 0 {
+		t.Fatalf("the browser's module graph now contains code from outside this "+
+			"project:\n  %s\n\nThat is not forbidden, but it is a decision: a "+
+			"module here is code no one in this project reviewed, running inside "+
+			"the binary whose whole claim is what it cannot do. Update this test "+
+			"deliberately, and say in the commit who reviewed what.",
+			strings.Join(third, "\n  "))
+	}
+}
+
+// The control for the test above: the same scan, run against a module graph
+// that does contain third-party code, must report it. A scan that always found
+// nothing would pass the zero case perfectly.
+func TestTheThirdPartyScanReportsWhatIsThere(t *testing.T) {
+	directory := t.TempDir()
+	files := map[string]string{
+		"go.mod": "module example.test\n\ngo 1.25.0\n\nrequire golang.org/x/sys v0.47.0\n",
+		"go.sum": "",
+		"use.go": "package use\n",
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(directory, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	command := exec.Command("go", "list", "-m", "all")
+	command.Dir = directory
+	command.Env = append(os.Environ(), "GOFLAGS=-mod=mod")
+	out, err := command.Output()
+	if err != nil {
+		t.Skipf("the control needs the module cache to resolve golang.org/x/sys: %v", err)
+	}
+	if !strings.Contains(string(out), "golang.org/x/sys") {
+		t.Fatalf("the scan did not report a module that is plainly there:\n%s", out)
 	}
 }
